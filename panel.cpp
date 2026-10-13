@@ -6,6 +6,8 @@
 
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <windowsx.h>
 
 #include <string>
 
@@ -268,6 +270,23 @@ bool PanelWindow::ContainsPoint(POINT pt) const {
   return PtInRect(&rc, pt) != FALSE;
 }
 
+int PanelWindow::HitTestItem(POINT clientPt) const {
+  if (!listView_ || items_.empty()) {
+    return -1;
+  }
+  LVHITTESTINFO hit = {};
+  hit.pt = clientPt;
+  const int index =
+      static_cast<int>(SendMessageW(listView_, LVM_HITTEST, 0, reinterpret_cast<LPARAM>(&hit)));
+  if (index < 0 || index >= static_cast<int>(items_.size())) {
+    return -1;
+  }
+  if ((hit.flags & LVHT_ONITEM) == 0) {
+    return -1;
+  }
+  return index;
+}
+
 void PanelWindow::OpenAt(int index) {
   // Placeholder rows have no real items_
   if (items_.empty()) {
@@ -279,6 +298,104 @@ void PanelWindow::OpenAt(int index) {
   ShellExecuteW(hwnd_, L"open", items_[index].fullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
   if (owner_) {
     PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+  }
+}
+
+void PanelWindow::OpenLocationAt(int index) {
+  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
+    return;
+  }
+
+  PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(items_[index].fullPath.c_str());
+  if (pidl) {
+    SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
+    ILFree(pidl);
+    if (owner_) {
+      PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+    }
+    return;
+  }
+
+  // Fallback: open parent folder
+  std::wstring path = items_[index].fullPath;
+  const size_t pos = path.find_last_of(L"\\/");
+  if (pos != std::wstring::npos) {
+    path.resize(pos);
+    ShellExecuteW(hwnd_, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (owner_) {
+      PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+    }
+  }
+}
+
+bool PanelWindow::DeleteAt(int index) {
+  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
+    return false;
+  }
+
+  const std::wstring& path = items_[index].fullPath;
+
+  // Double-null-terminated path list for SHFileOperation
+  std::wstring from = path;
+  from.push_back(L'\0');
+
+  SHFILEOPSTRUCTW op = {};
+  op.hwnd = hwnd_;
+  op.wFunc = FO_DELETE;
+  op.pFrom = from.c_str();
+  op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT;
+  const int result = SHFileOperationW(&op);
+  if (result != 0 || op.fAnyOperationsAborted) {
+    MessageBoxW(hwnd_, L"Failed to delete the item.", L"ToFolder", MB_ICONERROR | MB_OK);
+    return false;
+  }
+
+  Refresh();
+  return true;
+}
+
+void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
+  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
+    return;
+  }
+
+  ListView_SetItemState(listView_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+  ListView_SetItemState(listView_, index, LVIS_SELECTED | LVIS_FOCUSED,
+                        LVIS_SELECTED | LVIS_FOCUSED);
+
+  HMENU menu = CreatePopupMenu();
+  AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN, L"Open");
+  AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN_LOCATION, L"Open containing folder");
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(menu, MF_STRING, IDM_LIST_DELETE, L"Delete");
+
+  SetForegroundWindow(hwnd_);
+  const UINT cmd =
+      TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, screenPt.x, screenPt.y,
+                     0, hwnd_, nullptr);
+  DestroyMenu(menu);
+  // Ensure the popup is visually dismissed before running the action.
+  PostMessageW(hwnd_, WM_NULL, 0, 0);
+  MSG pump = {};
+  while (PeekMessageW(&pump, nullptr, 0, 0, PM_REMOVE)) {
+    TranslateMessage(&pump);
+    DispatchMessageW(&pump);
+  }
+
+  if (cmd == 0) {
+    return;
+  }
+
+  switch (cmd) {
+    case IDM_LIST_OPEN:
+      OpenAt(index);
+      break;
+    case IDM_LIST_OPEN_LOCATION:
+      OpenLocationAt(index);
+      break;
+    case IDM_LIST_DELETE:
+      DeleteAt(index);
+      break;
   }
 }
 
@@ -356,6 +473,32 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
       }
       break;
+    }
+    case WM_CONTEXTMENU: {
+      // Handle only WM_CONTEXTMENU (not also NM_RCLICK) so the menu is shown once and closes cleanly.
+      HWND src = reinterpret_cast<HWND>(wParam);
+      if (src != listView_ && src != hwnd_ && GetParent(src) != hwnd_) {
+        break;
+      }
+      POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+      int index = -1;
+      if (pt.x == -1 && pt.y == -1) {
+        index = ListView_GetNextItem(listView_, -1, LVNI_SELECTED);
+        RECT rc = {};
+        if (index >= 0 && ListView_GetItemRect(listView_, index, &rc, LVIR_BOUNDS)) {
+          pt.x = rc.left;
+          pt.y = rc.bottom;
+          ClientToScreen(listView_, &pt);
+        } else {
+          GetCursorPos(&pt);
+        }
+      } else {
+        POINT client = pt;
+        ScreenToClient(listView_, &client);
+        index = HitTestItem(client);
+      }
+      ShowItemContextMenu(index, pt);
+      return 0;
     }
     case WM_CLOSE:
       Hide();

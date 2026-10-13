@@ -11,4 +11,8 @@
 #define IDM_CHOOSE_FOLDER       1003
 #define IDM_EXIT                1004
 
+#define IDM_LIST_OPEN           1101
+#define IDM_LIST_OPEN_LOCATION  1102
+#define IDM_LIST_DELETE         1103
+
 #define IDC_FILE_LIST           2001

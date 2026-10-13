@@ -33,11 +33,15 @@ class PanelWindow {
   void UpdateColumnWidth();
   void PopulateList();
   void OpenAt(int index);
+  void OpenLocationAt(int index);
+  bool DeleteAt(int index);
+  void ShowItemContextMenu(int index, POINT screenPt);
   void EnsureList();
   void EnsureFont();
   RECT WorkAreaRect() const;
   UINT CurrentDpi() const;
   int PanelWidthPx() const;
+  int HitTestItem(POINT clientPt) const;
 
   HWND hwnd_ = nullptr;
   HWND owner_ = nullptr;
