@@ -93,6 +93,11 @@ Settings Load() {
     const std::wstring hiddenKey = L"ShowHidden=";
     if (line.compare(0, hiddenKey.size(), hiddenKey) == 0) {
       settings.showHidden = ParseBool(line.substr(hiddenKey.size()), false);
+      continue;
+    }
+    const std::wstring expandKey = L"ExpandFolders=";
+    if (line.compare(0, expandKey.size(), expandKey) == 0) {
+      settings.expandFolders = ParseBool(line.substr(expandKey.size()), false);
     }
   }
   return settings;
@@ -107,6 +112,7 @@ bool Save(const Settings& settings) {
   out << L"WatchPath=" << settings.watchPath << L"\n";
   out << L"SortMode=" << SortModeToString(settings.sortMode) << L"\n";
   out << L"ShowHidden=" << (settings.showHidden ? L"true" : L"false") << L"\n";
+  out << L"ExpandFolders=" << (settings.expandFolders ? L"true" : L"false") << L"\n";
   return static_cast<bool>(out);
 }
 
@@ -137,6 +143,16 @@ bool LoadShowHidden() {
 bool SaveShowHidden(bool showHidden) {
   Settings settings = Load();
   settings.showHidden = showHidden;
+  return Save(settings);
+}
+
+bool LoadExpandFolders() {
+  return Load().expandFolders;
+}
+
+bool SaveExpandFolders(bool expandFolders) {
+  Settings settings = Load();
+  settings.expandFolders = expandFolders;
   return Save(settings);
 }
 

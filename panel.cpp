@@ -370,6 +370,7 @@ void PanelWindow::Layout() {
 
 void PanelWindow::SetWatchPath(const std::wstring& path) {
   watchPath_ = path;
+  browsePath_ = path;
 }
 
 void PanelWindow::SetSortMode(config::SortMode mode) {
@@ -380,13 +381,151 @@ void PanelWindow::SetShowHidden(bool showHidden) {
   showHidden_ = showHidden;
 }
 
+void PanelWindow::SetExpandFolders(bool expandFolders) {
+  expandFolders_ = expandFolders;
+  if (!expandFolders_ && browsePath_ != watchPath_) {
+    browsePath_ = watchPath_;
+    if (IsVisible()) {
+      Refresh();
+    }
+  }
+}
+
+bool PanelWindow::IsAtWatchRoot() const {
+  if (watchPath_.empty() || browsePath_.empty()) {
+    return true;
+  }
+  return _wcsicmp(browsePath_.c_str(), watchPath_.c_str()) == 0;
+}
+
+std::wstring PanelWindow::ParentPath(const std::wstring& path) const {
+  if (path.empty()) {
+    return path;
+  }
+  std::wstring p = path;
+  while (!p.empty() && (p.back() == L'\\' || p.back() == L'/')) {
+    p.pop_back();
+  }
+  const size_t pos = p.find_last_of(L"\\/");
+  if (pos == std::wstring::npos) {
+    return p;
+  }
+  if (pos == 2 && p.size() >= 3 && p[1] == L':') {
+    // "C:\foo" -> "C:\"
+    return p.substr(0, 3);
+  }
+  return p.substr(0, pos);
+}
+
+bool PanelWindow::IsPathUnderWatch(const std::wstring& path) const {
+  if (watchPath_.empty() || path.empty()) {
+    return false;
+  }
+  if (_wcsicmp(path.c_str(), watchPath_.c_str()) == 0) {
+    return true;
+  }
+  std::wstring root = watchPath_;
+  while (!root.empty() && (root.back() == L'\\' || root.back() == L'/')) {
+    root.pop_back();
+  }
+  if (path.size() <= root.size()) {
+    return false;
+  }
+  if (_wcsnicmp(path.c_str(), root.c_str(), root.size()) != 0) {
+    return false;
+  }
+  const wchar_t sep = path[root.size()];
+  return sep == L'\\' || sep == L'/';
+}
+
+bool PanelWindow::IsParentRow(int index) const {
+  return index >= 0 && index < static_cast<int>(items_.size()) && items_[index].name == L"..";
+}
+
+void PanelWindow::ApplyVisibleSize(bool allowShrink) {
+  if (!hwnd_ || !IsWindowVisible(hwnd_)) {
+    return;
+  }
+
+  const RECT wa = WorkAreaRect();
+  const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
+  const int width = PanelWidthPx();
+  int height = PanelHeightPx(wa);
+  if (!allowShrink && retainedHeightPx_ > height) {
+    height = retainedHeightPx_;
+  }
+  retainedHeightPx_ = height;
+
+  const int x = wa.right - width - margin;
+  const int y = wa.bottom - margin - height;
+  SetWindowPos(
+      hwnd_,
+      HWND_TOPMOST,
+      x,
+      y,
+      width,
+      height,
+      SWP_NOACTIVATE | SWP_NOCOPYBITS);
+  Layout();
+  EnsureSelection();
+}
+
+void PanelWindow::NavigateTo(const std::wstring& path) {
+  if (path.empty() || !DirectoryWatcher::PathExists(path) || !IsPathUnderWatch(path)) {
+    return;
+  }
+  browsePath_ = path;
+  PopulateList();
+  // Entering another folder: grow if needed, never shrink.
+  ApplyVisibleSize(false);
+}
+
+void PanelWindow::NavigateUp() {
+  if (!expandFolders_ || IsAtWatchRoot()) {
+    return;
+  }
+  const std::wstring parent = ParentPath(browsePath_);
+  if (!IsPathUnderWatch(parent)) {
+    browsePath_ = watchPath_;
+  } else {
+    browsePath_ = parent;
+  }
+  PopulateList();
+  ApplyVisibleSize(false);
+}
+
 void PanelWindow::PopulateList() {
   if (!listView_) {
     return;
   }
 
+  if (browsePath_.empty()) {
+    browsePath_ = watchPath_;
+  }
+  if (!browsePath_.empty() && !DirectoryWatcher::PathExists(browsePath_)) {
+    browsePath_ = watchPath_;
+  }
+
   const int top = ListView_GetTopIndex(listView_);
-  items_ = DirectoryWatcher::Enumerate(watchPath_, sortMode_, showHidden_);
+  items_ = DirectoryWatcher::Enumerate(browsePath_, sortMode_, showHidden_);
+
+  if (expandFolders_ && !IsAtWatchRoot()) {
+    FileEntry up;
+    up.name = L"..";
+    up.fullPath = ParentPath(browsePath_);
+    up.isDirectory = true;
+    up.iconIndex = I_IMAGENONE;
+    SHFILEINFOW sfi = {};
+    if (SHGetFileInfoW(
+            up.fullPath.c_str(),
+            FILE_ATTRIBUTE_DIRECTORY,
+            &sfi,
+            sizeof(sfi),
+            SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES)) {
+      up.iconIndex = sfi.iIcon;
+    }
+    items_.insert(items_.begin(), std::move(up));
+  }
 
   // Virtual list: text comes from LVN_GETDISPINFO (smooth with many files)
   int count = static_cast<int>(items_.size());
@@ -405,27 +544,8 @@ void PanelWindow::PopulateList() {
 
 void PanelWindow::Refresh() {
   PopulateList();
-  if (!hwnd_ || !IsWindowVisible(hwnd_)) {
-    return;
-  }
-
-  const RECT wa = WorkAreaRect();
-  const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
-  const int width = PanelWidthPx();
-  const int height = PanelHeightPx(wa);
-  const int x = wa.right - width - margin;
-  // Anchor to the bottom of the work area (toast-like); full-height still fits.
-  const int y = wa.bottom - margin - height;
-  SetWindowPos(
-      hwnd_,
-      HWND_TOPMOST,
-      x,
-      y,
-      width,
-      height,
-      SWP_NOACTIVATE | SWP_NOCOPYBITS);
-  Layout();
-  EnsureSelection();
+  // Watcher/config refresh may grow for new files, but keep size when list shrinks.
+  ApplyVisibleSize(false);
 }
 
 void PanelWindow::Show() {
@@ -436,6 +556,7 @@ void PanelWindow::Show() {
   EnsureFont();
   ApplyWin11Chrome(hwnd_);
   SetWindowRgn(hwnd_, nullptr, FALSE);
+  retainedHeightPx_ = 0;
 
   const RECT wa = WorkAreaRect();
   const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
@@ -457,6 +578,7 @@ void PanelWindow::Show() {
   Layout();
   PopulateList();
   const int height = PanelHeightPx(wa);
+  retainedHeightPx_ = height;
   const int y = wa.bottom - margin - height;
   SetWindowPos(
       hwnd_,
@@ -497,6 +619,7 @@ void PanelWindow::Hide() {
 
   SlideOut(hwnd_, fromX, toX, y);
   ShowWindow(hwnd_, SW_HIDE);
+  retainedHeightPx_ = 0;
   suppressDeactivateHide_ = false;
 }
 
@@ -567,7 +690,18 @@ void PanelWindow::OpenAt(int index) {
   if (index < 0 || index >= static_cast<int>(items_.size())) {
     return;
   }
-  ShellExecuteW(hwnd_, L"open", items_[index].fullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+
+  const FileEntry& entry = items_[index];
+  if (expandFolders_ && entry.isDirectory) {
+    if (IsParentRow(index)) {
+      NavigateUp();
+    } else {
+      NavigateTo(entry.fullPath);
+    }
+    return;
+  }
+
+  ShellExecuteW(hwnd_, L"open", entry.fullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
   if (owner_) {
     PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
   }
@@ -575,6 +709,9 @@ void PanelWindow::OpenAt(int index) {
 
 void PanelWindow::OpenLocationAt(int index) {
   if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
+    return;
+  }
+  if (IsParentRow(index)) {
     return;
   }
 
@@ -604,6 +741,9 @@ bool PanelWindow::DeleteAt(int index) {
   if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
     return false;
   }
+  if (IsParentRow(index)) {
+    return false;
+  }
 
   const std::wstring& path = items_[index].fullPath;
 
@@ -628,6 +768,9 @@ bool PanelWindow::DeleteAt(int index) {
 
 void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
   if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
+    return;
+  }
+  if (IsParentRow(index)) {
     return;
   }
 
@@ -747,6 +890,10 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         return 0;
       }
+      if (wParam == VK_BACK) {
+        NavigateUp();
+        return 0;
+      }
       break;
     case WM_NOTIFY: {
       auto* nmhdr = reinterpret_cast<LPNMHDR>(lParam);
@@ -757,6 +904,10 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         const auto* kd = reinterpret_cast<LPNMLVKEYDOWN>(lParam);
         if (kd->wVKey == VK_RETURN) {
           OpenAt(SelectedIndex());
+          return 0;
+        }
+        if (kd->wVKey == VK_BACK) {
+          NavigateUp();
           return 0;
         }
         if (kd->wVKey == VK_ESCAPE) {
@@ -794,7 +945,10 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             wcsncpy_s(di->item.pszText, di->item.cchTextMax, msg, _TRUNCATE);
           } else if (index >= 0 && index < static_cast<int>(items_.size())) {
             const FileEntry& e = items_[index];
-            std::wstring name = e.isDirectory ? (e.name + L"\\") : e.name;
+            std::wstring name = e.name;
+            if (e.isDirectory && e.name != L"..") {
+              name += L"\\";
+            }
             wcsncpy_s(di->item.pszText, di->item.cchTextMax, name.c_str(), _TRUNCATE);
           }
         }

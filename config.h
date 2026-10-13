@@ -13,6 +13,7 @@ struct Settings {
   std::wstring watchPath;
   SortMode sortMode = SortMode::ByTime;
   bool showHidden = false;
+  bool expandFolders = false;
 };
 
 std::wstring GetExeDirectory();
@@ -27,5 +28,7 @@ SortMode LoadSortMode();
 bool SaveSortMode(SortMode mode);
 bool LoadShowHidden();
 bool SaveShowHidden(bool showHidden);
+bool LoadExpandFolders();
+bool SaveExpandFolders(bool expandFolders);
 
 }  // namespace config

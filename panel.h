@@ -28,6 +28,8 @@ class PanelWindow {
   config::SortMode SortMode() const { return sortMode_; }
   void SetShowHidden(bool showHidden);
   bool ShowHidden() const { return showHidden_; }
+  void SetExpandFolders(bool expandFolders);
+  bool ExpandFolders() const { return expandFolders_; }
   void Refresh();
   bool ContainsPoint(POINT pt) const;
 
@@ -45,6 +47,13 @@ class PanelWindow {
   void EnsureListIcons();
   void EnsureFont();
   void EnsureSelection();
+  void NavigateTo(const std::wstring& path);
+  void NavigateUp();
+  void ApplyVisibleSize(bool allowShrink);
+  bool IsAtWatchRoot() const;
+  bool IsParentRow(int index) const;
+  std::wstring ParentPath(const std::wstring& path) const;
+  bool IsPathUnderWatch(const std::wstring& path) const;
   RECT WorkAreaRect() const;
   UINT CurrentDpi() const;
   int PanelWidthPx() const;
@@ -58,9 +67,12 @@ class PanelWindow {
   HWND listView_ = nullptr;
   HFONT listFont_ = nullptr;
   std::wstring watchPath_;
+  std::wstring browsePath_;
   config::SortMode sortMode_ = config::SortMode::ByTime;
   bool showHidden_ = false;
+  bool expandFolders_ = false;
   std::vector<FileEntry> items_;
+  int retainedHeightPx_ = 0;  // grow-only while panel stays open
   bool created_ = false;
   bool suppressDeactivateHide_ = false;
 };

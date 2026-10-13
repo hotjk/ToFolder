@@ -25,6 +25,7 @@ DirectoryWatcher g_watcher;
 std::wstring g_watchPath;
 config::SortMode g_sortMode = config::SortMode::ByTime;
 bool g_showHidden = false;
+bool g_expandFolders = false;
 ULONGLONG g_panelHiddenAt = 0;
 
 void UpdateTrayTip() {
@@ -83,6 +84,7 @@ void ApplyWatchPath(const std::wstring& path, bool save) {
   g_panel.SetWatchPath(g_watchPath);
   g_panel.SetSortMode(g_sortMode);
   g_panel.SetShowHidden(g_showHidden);
+  g_panel.SetExpandFolders(g_expandFolders);
   UpdateTrayTip();
   g_watcher.Stop();
   if (DirectoryWatcher::PathExists(g_watchPath)) {
@@ -109,6 +111,17 @@ void ApplyShowHidden(bool showHidden, bool save) {
   g_panel.SetShowHidden(g_showHidden);
   if (save) {
     config::SaveShowHidden(g_showHidden);
+  }
+  if (g_panel.IsVisible()) {
+    g_panel.Refresh();
+  }
+}
+
+void ApplyExpandFolders(bool expandFolders, bool save) {
+  g_expandFolders = expandFolders;
+  g_panel.SetExpandFolders(g_expandFolders);
+  if (save) {
+    config::SaveExpandFolders(g_expandFolders);
   }
   if (g_panel.IsVisible()) {
     g_panel.Refresh();
@@ -164,6 +177,11 @@ void ShowContextMenu(HWND hwnd) {
       MF_STRING | (g_showHidden ? MF_CHECKED : MF_UNCHECKED),
       IDM_SHOW_HIDDEN,
       L"Show hidden files");
+  AppendMenuW(
+      menu,
+      MF_STRING | (g_expandFolders ? MF_CHECKED : MF_UNCHECKED),
+      IDM_EXPAND_FOLDERS,
+      L"Expand folders");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING, IDM_ABOUT, L"About...");
   AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Exit");
@@ -201,6 +219,9 @@ void ShowContextMenu(HWND hwnd) {
       break;
     case IDM_SHOW_HIDDEN:
       ApplyShowHidden(!g_showHidden, true);
+      break;
+    case IDM_EXPAND_FOLDERS:
+      ApplyExpandFolders(!g_expandFolders, true);
       break;
     case IDM_ABOUT: {
       const int choice = MessageBoxW(
@@ -330,8 +351,10 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   const config::Settings settings = config::Load();
   g_sortMode = settings.sortMode;
   g_showHidden = settings.showHidden;
+  g_expandFolders = settings.expandFolders;
   g_panel.SetSortMode(g_sortMode);
   g_panel.SetShowHidden(g_showHidden);
+  g_panel.SetExpandFolders(g_expandFolders);
   ApplyWatchPath(settings.watchPath, false);
 
   MSG msg = {};
