@@ -5,6 +5,7 @@
 #include "resource.h"
 
 #include <commctrl.h>
+#include <dwmapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <windowsx.h>
@@ -15,9 +16,110 @@
 #define LVS_EX_NOHSCROLL 0x10000000
 #endif
 
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#endif
+#ifndef DWMWCP_ROUND
+#define DWMWCP_DEFAULT 0
+#define DWMWCP_DONOTROUND 1
+#define DWMWCP_ROUND 2
+#define DWMWCP_ROUNDSMALL 3
+#endif
+#ifndef DWMWA_TRANSITIONS_FORCEDISABLED
+#define DWMWA_TRANSITIONS_FORCEDISABLED 3
+#endif
+
 namespace {
 
 constexpr int kPanelWidth96 = 360;
+constexpr int kPanelMargin96 = 12;
+constexpr int kSlideMs = 180;
+
+void ApplyWin11Chrome(HWND hwnd) {
+  const DWORD corner = DWMWCP_ROUND;
+  DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+
+  // Prevent DWM from adding its own show/hide morph (looks like scaling).
+  const BOOL noTransition = TRUE;
+  DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &noTransition, sizeof(noTransition));
+}
+
+constexpr DWORD kMoveFlags = SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER;
+
+void RunSlide(HWND hwnd, int fromX, int toX, int y) {
+  const int distance = std::abs(toX - fromX);
+  int steps = kSlideMs * 60 / 1000;
+  if (steps < 1) {
+    steps = 1;
+  }
+  if (steps > distance && distance > 0) {
+    steps = distance;
+  }
+
+  int lastX = fromX;
+  for (int i = 1; i <= steps; ++i) {
+    const int x = fromX + static_cast<int>(
+        (static_cast<long long>(toX - fromX) * i) / steps);
+    if (x != lastX) {
+      SetWindowPos(hwnd, nullptr, x, y, 0, 0, kMoveFlags);
+      lastX = x;
+      DwmFlush();
+    }
+  }
+  if (lastX != toX) {
+    SetWindowPos(hwnd, nullptr, toX, y, 0, 0, kMoveFlags);
+    DwmFlush();
+  }
+}
+
+void SetAlpha(HWND hwnd, BYTE alpha) {
+  SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+}
+
+// Off-screen windows are not composed with content (only an empty DWM frame).
+// Paint at the final rect while fully transparent, jump off-screen, then fade in
+// and translate — size never changes.
+void SlideIn(HWND hwnd, int fromX, int toX, int y) {
+  const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+  SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED);
+  SetWindowPos(
+      hwnd,
+      nullptr,
+      0,
+      0,
+      0,
+      0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  // Alpha 0: on-screen paint without a visible flash (off-screen paint is skipped by DWM).
+  SetAlpha(hwnd, 0);
+
+  SetWindowPos(
+      hwnd,
+      nullptr,
+      toX,
+      y,
+      0,
+      0,
+      kMoveFlags | SWP_SHOWWINDOW);
+  RedrawWindow(
+      hwnd,
+      nullptr,
+      nullptr,
+      RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_ERASE);
+  DwmFlush();
+
+  // Content is in the redirection surface; jump off-screen while still invisible.
+  SetWindowPos(hwnd, nullptr, fromX, y, 0, 0, kMoveFlags);
+  SetAlpha(hwnd, 255);
+  DwmFlush();
+
+  RunSlide(hwnd, fromX, toX, y);
+}
+
+void SlideOut(HWND hwnd, int fromX, int toX, int y) {
+  SetWindowPos(hwnd, nullptr, fromX, y, 0, 0, kMoveFlags | SWP_SHOWWINDOW);
+  RunSlide(hwnd, fromX, toX, y);
+}
 
 }  // namespace
 
@@ -44,7 +146,7 @@ bool PanelWindow::Create(HWND owner) {
       WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
       L"ToFolderPanelClass",
       L"ToFolder",
-      WS_POPUP | WS_BORDER | WS_CLIPCHILDREN,
+      WS_POPUP | WS_CLIPCHILDREN,
       wa.right,
       wa.top,
       PanelWidthPx(),
@@ -57,6 +159,8 @@ bool PanelWindow::Create(HWND owner) {
   if (!hwnd_) {
     return false;
   }
+
+  ApplyWin11Chrome(hwnd_);
 
   created_ = true;
   EnsureFont();
@@ -229,27 +333,50 @@ void PanelWindow::Show() {
   }
 
   EnsureFont();
+  ApplyWin11Chrome(hwnd_);
+  SetWindowRgn(hwnd_, nullptr, FALSE);
 
   const RECT wa = WorkAreaRect();
+  const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
   const int width = PanelWidthPx();
-  const int height = wa.bottom - wa.top;
-  const int x = wa.right - width;
-  const int y = wa.top;
+  const int height = (wa.bottom - wa.top) - margin * 2;
+  const int toX = wa.right - width - margin;
+  const int y = wa.top + margin;
+  // Fully past the right edge (clear of DWM shadow) — same size as final, translate only.
+  const int fromX = wa.right + dpi::Scale(32, CurrentDpi());
 
-  SetWindowPos(hwnd_, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_HIDEWINDOW);
+  SetWindowPos(
+      hwnd_,
+      HWND_TOPMOST,
+      toX,
+      y,
+      width,
+      height,
+      SWP_NOACTIVATE | SWP_HIDEWINDOW);
   Layout();
   Refresh();
+  if (listView_) {
+    UpdateColumnWidth();
+  }
 
-  AnimateWindow(hwnd_, 180, AW_SLIDE | AW_HOR_NEGATIVE);
-  SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0,
-               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  SlideIn(hwnd_, fromX, toX, y);
 }
 
 void PanelWindow::Hide() {
   if (!hwnd_ || !IsWindowVisible(hwnd_)) {
     return;
   }
-  AnimateWindow(hwnd_, 150, AW_SLIDE | AW_HOR_POSITIVE | AW_HIDE);
+
+  ApplyWin11Chrome(hwnd_);
+
+  RECT rc = {};
+  GetWindowRect(hwnd_, &rc);
+  const int y = rc.top;
+  const int fromX = rc.left;
+  const RECT wa = WorkAreaRect();
+  const int toX = wa.right + dpi::Scale(32, CurrentDpi());
+
+  SlideOut(hwnd_, fromX, toX, y);
   ShowWindow(hwnd_, SW_HIDE);
 }
 

@@ -46,7 +46,7 @@ cl /nologo /EHsc /std:c++17 /utf-8 /O2 /W3 /DUNICODE /D_UNICODE ^
   main.cpp config.cpp watcher.cpp tray.cpp panel.cpp dpi.cpp icon_load.cpp ^
   out\resource.res ^
   /link /SUBSYSTEM:WINDOWS /MANIFEST:NO ^
-  user32.lib gdi32.lib shell32.lib ole32.lib comdlg32.lib comctl32.lib advapi32.lib shcore.lib
+  user32.lib gdi32.lib shell32.lib ole32.lib comdlg32.lib comctl32.lib advapi32.lib shcore.lib dwmapi.lib
 
 if errorlevel 1 (
   echo [ERROR] Build failed.
