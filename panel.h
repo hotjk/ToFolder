@@ -40,6 +40,7 @@ class PanelWindow {
   bool DeleteAt(int index);
   void ShowItemContextMenu(int index, POINT screenPt);
   void EnsureList();
+  void EnsureListIcons();
   void EnsureFont();
   RECT WorkAreaRect() const;
   UINT CurrentDpi() const;

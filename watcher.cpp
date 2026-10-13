@@ -1,5 +1,7 @@
 #include "watcher.h"
 
+#include <shellapi.h>
+
 #include <algorithm>
 #include <vector>
 
@@ -54,6 +56,17 @@ std::vector<FileEntry> DirectoryWatcher::Enumerate(const std::wstring& path,
     entry.fullPath = path + L"\\" + fd.cFileName;
     entry.lastWrite = fd.ftLastWriteTime;
     entry.isDirectory = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+    SHFILEINFOW sfi = {};
+    if (SHGetFileInfoW(
+            entry.fullPath.c_str(),
+            0,
+            &sfi,
+            sizeof(sfi),
+            SHGFI_SYSICONINDEX | SHGFI_SMALLICON)) {
+      entry.iconIndex = sfi.iIcon;
+    }
+
     items.push_back(std::move(entry));
   } while (FindNextFileW(find, &fd));
 

@@ -296,8 +296,28 @@ void PanelWindow::EnsureList() {
   col.iSubItem = 0;
   ListView_InsertColumn(listView_, 0, &col);
 
+  EnsureListIcons();
+
   if (listFont_) {
     SendMessageW(listView_, WM_SETFONT, reinterpret_cast<WPARAM>(listFont_), TRUE);
+  }
+}
+
+void PanelWindow::EnsureListIcons() {
+  if (!listView_) {
+    return;
+  }
+
+  // Return value is the shell system image list — do not ImageList_Destroy it.
+  SHFILEINFOW sfi = {};
+  HIMAGELIST himl = reinterpret_cast<HIMAGELIST>(SHGetFileInfoW(
+      L"C:\\",
+      0,
+      &sfi,
+      sizeof(sfi),
+      SHGFI_SYSICONINDEX | SHGFI_SMALLICON));
+  if (himl) {
+    ListView_SetImageList(listView_, himl, LVSIL_SMALL);
   }
 }
 
@@ -634,6 +654,10 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_DPICHANGED: {
       const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
       EnsureFont();
+      EnsureListIcons();
+      if (listView_) {
+        InvalidateRect(listView_, nullptr, TRUE);
+      }
       if (IsVisible() && suggested) {
         SetWindowPos(hwnd_, nullptr, suggested->left, suggested->top,
                      suggested->right - suggested->left, suggested->bottom - suggested->top,
@@ -658,26 +682,32 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
       }
       if (nmhdr->code == LVN_GETDISPINFOW) {
         auto* di = reinterpret_cast<NMLVDISPINFOW*>(lParam);
-        if (!(di->item.mask & LVIF_TEXT) || !di->item.pszText || di->item.cchTextMax <= 0) {
-          return 0;
-        }
-        di->item.pszText[0] = L'\0';
+        const int index = di->item.iItem;
 
-        if (items_.empty()) {
-          const wchar_t* msg = L"(Empty folder)";
-          if (watchPath_.empty()) {
-            msg = L"(Choose a folder from the tray menu)";
-          } else if (!DirectoryWatcher::PathExists(watchPath_)) {
-            msg = L"(Path is invalid)";
+        if (di->item.mask & LVIF_IMAGE) {
+          if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
+            di->item.iImage = I_IMAGENONE;
+          } else {
+            di->item.iImage = items_[index].iconIndex;
           }
-          wcsncpy_s(di->item.pszText, di->item.cchTextMax, msg, _TRUNCATE);
-          return 0;
         }
 
-        if (di->item.iItem >= 0 && di->item.iItem < static_cast<int>(items_.size())) {
-          const FileEntry& e = items_[di->item.iItem];
-          std::wstring name = e.isDirectory ? (e.name + L"\\") : e.name;
-          wcsncpy_s(di->item.pszText, di->item.cchTextMax, name.c_str(), _TRUNCATE);
+        if ((di->item.mask & LVIF_TEXT) && di->item.pszText && di->item.cchTextMax > 0) {
+          di->item.pszText[0] = L'\0';
+
+          if (items_.empty()) {
+            const wchar_t* msg = L"(Empty folder)";
+            if (watchPath_.empty()) {
+              msg = L"(Choose a folder from the tray menu)";
+            } else if (!DirectoryWatcher::PathExists(watchPath_)) {
+              msg = L"(Path is invalid)";
+            }
+            wcsncpy_s(di->item.pszText, di->item.cchTextMax, msg, _TRUNCATE);
+          } else if (index >= 0 && index < static_cast<int>(items_.size())) {
+            const FileEntry& e = items_[index];
+            std::wstring name = e.isDirectory ? (e.name + L"\\") : e.name;
+            wcsncpy_s(di->item.pszText, di->item.cchTextMax, name.c_str(), _TRUNCATE);
+          }
         }
         return 0;
       }

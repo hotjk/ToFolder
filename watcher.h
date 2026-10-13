@@ -14,6 +14,7 @@ struct FileEntry {
   std::wstring fullPath;
   FILETIME lastWrite = {};
   bool isDirectory = false;
+  int iconIndex = -1;  // SHGFI_SYSICONINDEX into the shell system image list
 };
 
 class DirectoryWatcher {
