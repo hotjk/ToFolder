@@ -1,5 +1,7 @@
 #pragma once
 
+#include "config.h"
+
 #include <windows.h>
 
 #include <cstdint>
@@ -29,7 +31,8 @@ class DirectoryWatcher {
   void Stop();
   std::wstring GetPath() const;
 
-  static std::vector<FileEntry> Enumerate(const std::wstring& path);
+  static std::vector<FileEntry> Enumerate(const std::wstring& path,
+                                          config::SortMode sortMode = config::SortMode::ByTime);
   static bool PathExists(const std::wstring& path);
 
  private:

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config.h"
 #include "watcher.h"
 
 #include <windows.h>
@@ -23,6 +24,8 @@ class PanelWindow {
   void Hide();
   void Toggle();
   void SetWatchPath(const std::wstring& path);
+  void SetSortMode(config::SortMode mode);
+  config::SortMode SortMode() const { return sortMode_; }
   void Refresh();
   bool ContainsPoint(POINT pt) const;
 
@@ -50,6 +53,7 @@ class PanelWindow {
   HWND listView_ = nullptr;
   HFONT listFont_ = nullptr;
   std::wstring watchPath_;
+  config::SortMode sortMode_ = config::SortMode::ByTime;
   std::vector<FileEntry> items_;
   bool created_ = false;
 };

@@ -31,7 +31,8 @@ bool DirectoryWatcher::PathExists(const std::wstring& path) {
   return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-std::vector<FileEntry> DirectoryWatcher::Enumerate(const std::wstring& path) {
+std::vector<FileEntry> DirectoryWatcher::Enumerate(const std::wstring& path,
+                                                   config::SortMode sortMode) {
   std::vector<FileEntry> items;
   if (!PathExists(path)) {
     return items;
@@ -58,13 +59,26 @@ std::vector<FileEntry> DirectoryWatcher::Enumerate(const std::wstring& path) {
 
   FindClose(find);
 
-  std::sort(items.begin(), items.end(), [](const FileEntry& a, const FileEntry& b) {
-    const LONG cmp = CompareFileTime(&a.lastWrite, &b.lastWrite);
-    if (cmp != 0) {
-      return cmp > 0;
-    }
-    return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
-  });
+  // Files first, folders always at the bottom; then apply the chosen sort within each group.
+  if (sortMode == config::SortMode::ByName) {
+    std::sort(items.begin(), items.end(), [](const FileEntry& a, const FileEntry& b) {
+      if (a.isDirectory != b.isDirectory) {
+        return !a.isDirectory && b.isDirectory;
+      }
+      return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
+    });
+  } else {
+    std::sort(items.begin(), items.end(), [](const FileEntry& a, const FileEntry& b) {
+      if (a.isDirectory != b.isDirectory) {
+        return !a.isDirectory && b.isDirectory;
+      }
+      const LONG cmp = CompareFileTime(&a.lastWrite, &b.lastWrite);
+      if (cmp != 0) {
+        return cmp > 0;
+      }
+      return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
+    });
+  }
 
   return items;
 }

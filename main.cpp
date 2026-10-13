@@ -23,6 +23,7 @@ DirectoryWatcher g_watcher;
 HHOOK g_mouseHook = nullptr;
 HHOOK g_keyboardHook = nullptr;
 std::wstring g_watchPath;
+config::SortMode g_sortMode = config::SortMode::ByTime;
 
 void UpdateTrayTip() {
   if (g_watchPath.empty()) {
@@ -138,10 +139,22 @@ void ApplyWatchPath(const std::wstring& path, bool save) {
   }
   g_tray.SetUnread(false);
   g_panel.SetWatchPath(g_watchPath);
+  g_panel.SetSortMode(g_sortMode);
   UpdateTrayTip();
   g_watcher.Stop();
   if (DirectoryWatcher::PathExists(g_watchPath)) {
     g_watcher.Start(g_watchPath);
+  }
+  if (g_panel.IsVisible()) {
+    g_panel.Refresh();
+  }
+}
+
+void ApplySortMode(config::SortMode mode, bool save) {
+  g_sortMode = mode;
+  g_panel.SetSortMode(g_sortMode);
+  if (save) {
+    config::SaveSortMode(g_sortMode);
   }
   if (g_panel.IsVisible()) {
     g_panel.Refresh();
@@ -180,6 +193,17 @@ void ShowContextMenu(HWND hwnd) {
   }
   AppendMenuW(menu, MF_STRING, IDM_CHOOSE_FOLDER, L"Choose folder...");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(
+      menu,
+      MF_STRING | (g_sortMode == config::SortMode::ByTime ? MF_CHECKED : MF_UNCHECKED),
+      IDM_SORT_TIME,
+      L"Sort by time");
+  AppendMenuW(
+      menu,
+      MF_STRING | (g_sortMode == config::SortMode::ByName ? MF_CHECKED : MF_UNCHECKED),
+      IDM_SORT_NAME,
+      L"Sort by name");
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Exit");
 
   SetForegroundWindow(hwnd);
@@ -207,6 +231,12 @@ void ShowContextMenu(HWND hwnd) {
       }
       break;
     }
+    case IDM_SORT_TIME:
+      ApplySortMode(config::SortMode::ByTime, true);
+      break;
+    case IDM_SORT_NAME:
+      ApplySortMode(config::SortMode::ByName, true);
+      break;
     case IDM_EXIT:
       DestroyWindow(hwnd);
       break;
@@ -318,7 +348,10 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   g_panel.Create(g_hwnd);
   g_tray.Add(g_hwnd, WM_TRAYICON);
 
-  ApplyWatchPath(config::LoadWatchPath(), false);
+  const config::Settings settings = config::Load();
+  g_sortMode = settings.sortMode;
+  g_panel.SetSortMode(g_sortMode);
+  ApplyWatchPath(settings.watchPath, false);
 
   MSG msg = {};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

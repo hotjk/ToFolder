@@ -352,13 +352,17 @@ void PanelWindow::SetWatchPath(const std::wstring& path) {
   watchPath_ = path;
 }
 
+void PanelWindow::SetSortMode(config::SortMode mode) {
+  sortMode_ = mode;
+}
+
 void PanelWindow::PopulateList() {
   if (!listView_) {
     return;
   }
 
   const int top = ListView_GetTopIndex(listView_);
-  items_ = DirectoryWatcher::Enumerate(watchPath_);
+  items_ = DirectoryWatcher::Enumerate(watchPath_, sortMode_);
 
   // Virtual list: text comes from LVN_GETDISPINFO (smooth with many files)
   int count = static_cast<int>(items_.size());

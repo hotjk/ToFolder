@@ -9,7 +9,9 @@
 #define IDM_OPEN_PANEL          1001
 #define IDM_OPEN_FOLDER         1002
 #define IDM_CHOOSE_FOLDER       1003
-#define IDM_EXIT                1004
+#define IDM_SORT_TIME           1004
+#define IDM_SORT_NAME           1005
+#define IDM_EXIT                1006
 
 #define IDM_LIST_OPEN           1101
 #define IDM_LIST_OPEN_LOCATION  1102
