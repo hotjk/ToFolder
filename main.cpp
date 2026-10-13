@@ -327,7 +327,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     return 0;
   }
 
-  CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  if (FAILED(OleInitialize(nullptr))) {
+    return 1;
+  }
 
   INITCOMMONCONTROLSEX icc = {};
   icc.dwSize = sizeof(icc);
@@ -377,7 +379,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     DispatchMessageW(&msg);
   }
 
-  CoUninitialize();
+  OleUninitialize();
   CloseHandle(mutex);
   return static_cast<int>(msg.wParam);
 }

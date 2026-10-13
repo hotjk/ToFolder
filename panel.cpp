@@ -7,12 +7,15 @@
 
 #include <commctrl.h>
 #include <dwmapi.h>
+#include <oleidl.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 #include <uxtheme.h>
 #include <windowsx.h>
 
 #include <cmath>
+#include <new>
 #include <string>
 
 #ifndef LVS_EX_NOHSCROLL
@@ -40,6 +43,53 @@ constexpr int kPanelPadding96 = 12;
 constexpr int kRowHeight96 = 28;
 constexpr int kPanelMinHeight96 = 160;
 constexpr int kSlideMs = 160;
+
+class SimpleDropSource final : public IDropSource {
+ public:
+  SimpleDropSource() = default;
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+    if (!ppv) {
+      return E_POINTER;
+    }
+    if (riid == IID_IUnknown || riid == IID_IDropSource) {
+      *ppv = static_cast<IDropSource*>(this);
+      AddRef();
+      return S_OK;
+    }
+    *ppv = nullptr;
+    return E_NOINTERFACE;
+  }
+
+  ULONG STDMETHODCALLTYPE AddRef() override {
+    return static_cast<ULONG>(InterlockedIncrement(&ref_));
+  }
+
+  ULONG STDMETHODCALLTYPE Release() override {
+    const LONG ref = InterlockedDecrement(&ref_);
+    if (ref == 0) {
+      delete this;
+    }
+    return static_cast<ULONG>(ref);
+  }
+
+  HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escapePressed, DWORD keyState) override {
+    if (escapePressed) {
+      return DRAGDROP_S_CANCEL;
+    }
+    if ((keyState & MK_LBUTTON) == 0) {
+      return DRAGDROP_S_DROP;
+    }
+    return S_OK;
+  }
+
+  HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD /*dwEffect*/) override {
+    return DRAGDROP_S_USEDEFAULTCURSORS;
+  }
+
+ private:
+  LONG ref_ = 1;
+};
 
 void ApplyWin11Chrome(HWND hwnd) {
   const DWORD corner = DWMWCP_ROUND;
@@ -820,6 +870,57 @@ bool PanelWindow::DeleteAt(int index) {
   return true;
 }
 
+void PanelWindow::BeginDragAt(int index) {
+  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
+    return;
+  }
+  if (IsParentRow(index)) {
+    return;
+  }
+
+  const std::wstring& path = items_[index].fullPath;
+  IShellItem* item = nullptr;
+  HRESULT hr = SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&item));
+  if (FAILED(hr) || !item) {
+    return;
+  }
+
+  IDataObject* dataObj = nullptr;
+  hr = item->BindToHandler(nullptr, BHID_DataObject, IID_PPV_ARGS(&dataObj));
+  item->Release();
+  if (FAILED(hr) || !dataObj) {
+    return;
+  }
+
+  IDropSource* dropSource = new (std::nothrow) SimpleDropSource();
+  if (!dropSource) {
+    dataObj->Release();
+    return;
+  }
+
+  // Drag activates other windows; don't treat that as an outside dismiss.
+  suppressDeactivateHide_ = true;
+  DWORD effect = DROPEFFECT_NONE;
+  DoDragDrop(dataObj, dropSource, DROPEFFECT_MOVE | DROPEFFECT_COPY, &effect);
+  dropSource->Release();
+  dataObj->Release();
+  suppressDeactivateHide_ = false;
+
+  const HWND fg = GetForegroundWindow();
+  const bool panelIsForeground = fg == hwnd_ || (fg != nullptr && IsChild(hwnd_, fg));
+  if (!panelIsForeground) {
+    if (owner_) {
+      PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+    } else {
+      Hide();
+    }
+  } else if (listView_) {
+    SetFocus(listView_);
+  }
+
+  Refresh();
+}
+
 void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
   if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
     return;
@@ -1015,6 +1116,11 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             wcsncpy_s(di->item.pszText, di->item.cchTextMax, name.c_str(), _TRUNCATE);
           }
         }
+        return 0;
+      }
+      if (nmhdr->code == LVN_BEGINDRAG) {
+        const auto* lv = reinterpret_cast<LPNMLISTVIEW>(lParam);
+        BeginDragAt(lv->iItem);
         return 0;
       }
       if (nmhdr->code == NM_DBLCLK) {

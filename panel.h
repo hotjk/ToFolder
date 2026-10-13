@@ -44,6 +44,7 @@ class PanelWindow {
   void OpenLocationAt(int index);
   bool DeleteAt(int index);
   void ShowItemContextMenu(int index, POINT screenPt);
+  void BeginDragAt(int index);
   void EnsureList();
   void EnsureListIcons();
   void EnsureFont();
