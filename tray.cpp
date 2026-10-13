@@ -47,7 +47,7 @@ bool TrayIcon::LoadIcons() {
   const int cx = TrayIconSizePx(hwnd_);
   iconNormal_ = LoadAppIcon(inst, IDI_FOLDER, cx, cx);
   iconOpen_ = LoadAppIcon(inst, IDI_FOLDER_OPEN, cx, cx);
-  iconPlus_ = LoadAppIcon(inst, IDI_FOLDER_PLUS, cx, cx);
+  iconPlus_ = LoadAppIcon(inst, IDI_FOLDER_FILL, cx, cx);
   return iconNormal_ && iconOpen_ && iconPlus_;
 }
 

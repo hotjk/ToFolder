@@ -80,7 +80,7 @@ build.bat         一键编译
 
 - 正常：`folder`
 - 面板打开：`folder2-open`
-- 有新文件：`folder-plus`
+- 有新文件：`folder-fill`
 
 ## 许可
 

@@ -4,7 +4,7 @@
 #define IDI_APP                 1
 #define IDI_FOLDER              101
 #define IDI_FOLDER_OPEN         102
-#define IDI_FOLDER_PLUS         103
+#define IDI_FOLDER_FILL         103
 
 #define IDM_OPEN_PANEL          1001
 #define IDM_OPEN_FOLDER         1002

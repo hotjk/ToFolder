@@ -17,7 +17,7 @@ import pymupdf as fitz
 from PIL import Image
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-NAMES = ("folder", "folder2-open", "folder-plus")
+NAMES = ("folder", "folder2-open", "folder-fill")
 SIZES = (16, 32, 48, 64, 128, 256)
 
 
