@@ -41,6 +41,8 @@ class PanelWindow {
   RECT WorkAreaRect() const;
   UINT CurrentDpi() const;
   int PanelWidthPx() const;
+  int RowHeightPx() const;
+  int PanelHeightPx(const RECT& workArea) const;
   int HitTestItem(POINT clientPt) const;
 
   HWND hwnd_ = nullptr;

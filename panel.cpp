@@ -10,6 +10,7 @@
 #include <shlobj.h>
 #include <windowsx.h>
 
+#include <cmath>
 #include <string>
 
 #ifndef LVS_EX_NOHSCROLL
@@ -33,7 +34,10 @@ namespace {
 
 constexpr int kPanelWidth96 = 360;
 constexpr int kPanelMargin96 = 12;
-constexpr int kSlideMs = 180;
+constexpr int kPanelPadding96 = 12;
+constexpr int kRowHeight96 = 28;
+constexpr int kPanelMinHeight96 = 160;
+constexpr int kSlideMs = 160;
 
 void ApplyWin11Chrome(HWND hwnd) {
   const DWORD corner = DWMWCP_ROUND;
@@ -46,20 +50,28 @@ void ApplyWin11Chrome(HWND hwnd) {
 
 constexpr DWORD kMoveFlags = SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER;
 
-void RunSlide(HWND hwnd, int fromX, int toX, int y) {
-  const int distance = std::abs(toX - fromX);
+// Windows toast–like: decelerate into place / accelerate away — no overshoot.
+float EaseOutCubic(float t) {
+  const float u = 1.0f - t;
+  return 1.0f - u * u * u;
+}
+
+float EaseInCubic(float t) {
+  return t * t * t;
+}
+
+void RunSlide(HWND hwnd, int fromX, int toX, int y, float (*ease)(float)) {
   int steps = kSlideMs * 60 / 1000;
-  if (steps < 1) {
-    steps = 1;
-  }
-  if (steps > distance && distance > 0) {
-    steps = distance;
+  if (steps < 16) {
+    steps = 16;
   }
 
   int lastX = fromX;
   for (int i = 1; i <= steps; ++i) {
-    const int x = fromX + static_cast<int>(
-        (static_cast<long long>(toX - fromX) * i) / steps);
+    const float t = static_cast<float>(i) / static_cast<float>(steps);
+    const float e = ease(t);
+    const int x =
+        fromX + static_cast<int>(std::lround(static_cast<double>(toX - fromX) * e));
     if (x != lastX) {
       SetWindowPos(hwnd, nullptr, x, y, 0, 0, kMoveFlags);
       lastX = x;
@@ -113,12 +125,12 @@ void SlideIn(HWND hwnd, int fromX, int toX, int y) {
   SetAlpha(hwnd, 255);
   DwmFlush();
 
-  RunSlide(hwnd, fromX, toX, y);
+  RunSlide(hwnd, fromX, toX, y, EaseOutCubic);
 }
 
 void SlideOut(HWND hwnd, int fromX, int toX, int y) {
   SetWindowPos(hwnd, nullptr, fromX, y, 0, 0, kMoveFlags | SWP_SHOWWINDOW);
-  RunSlide(hwnd, fromX, toX, y);
+  RunSlide(hwnd, fromX, toX, y, EaseInCubic);
 }
 
 }  // namespace
@@ -197,6 +209,35 @@ UINT PanelWindow::CurrentDpi() const {
 
 int PanelWindow::PanelWidthPx() const {
   return dpi::Scale(kPanelWidth96, CurrentDpi());
+}
+
+int PanelWindow::RowHeightPx() const {
+  if (listView_) {
+    RECT itemRc = {};
+    if (ListView_GetItemRect(listView_, 0, &itemRc, LVIR_BOUNDS)) {
+      const int h = itemRc.bottom - itemRc.top;
+      if (h > 0) {
+        return h;
+      }
+    }
+  }
+  return dpi::Scale(kRowHeight96, CurrentDpi());
+}
+
+int PanelWindow::PanelHeightPx(const RECT& workArea) const {
+  const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
+  const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
+  const int maxH = (workArea.bottom - workArea.top) - margin * 2;
+  const int minH = dpi::Scale(kPanelMinHeight96, CurrentDpi());
+  const int rows = items_.empty() ? 1 : static_cast<int>(items_.size());
+  int h = pad * 2 + RowHeightPx() * rows;
+  if (h < minH) {
+    h = minH;
+  }
+  if (h > maxH) {
+    h = maxH;
+  }
+  return h;
 }
 
 RECT PanelWindow::WorkAreaRect() const {
@@ -292,7 +333,18 @@ void PanelWindow::Layout() {
   }
   RECT rc = {};
   GetClientRect(hwnd_, &rc);
-  SetWindowPos(listView_, nullptr, 0, 0, rc.right, rc.bottom, SWP_NOZORDER);
+  const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
+  int x = pad;
+  int y = pad;
+  int w = (rc.right - rc.left) - pad * 2;
+  int h = (rc.bottom - rc.top) - pad * 2;
+  if (w < 1) {
+    w = 1;
+  }
+  if (h < 1) {
+    h = 1;
+  }
+  SetWindowPos(listView_, nullptr, x, y, w, h, SWP_NOZORDER);
   UpdateColumnWidth();
 }
 
@@ -325,6 +377,26 @@ void PanelWindow::PopulateList() {
 
 void PanelWindow::Refresh() {
   PopulateList();
+  if (!hwnd_ || !IsWindowVisible(hwnd_)) {
+    return;
+  }
+
+  const RECT wa = WorkAreaRect();
+  const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
+  const int width = PanelWidthPx();
+  const int height = PanelHeightPx(wa);
+  const int x = wa.right - width - margin;
+  // Anchor to the bottom of the work area (toast-like); full-height still fits.
+  const int y = wa.bottom - margin - height;
+  SetWindowPos(
+      hwnd_,
+      HWND_TOPMOST,
+      x,
+      y,
+      width,
+      height,
+      SWP_NOACTIVATE | SWP_NOCOPYBITS);
+  Layout();
 }
 
 void PanelWindow::Show() {
@@ -339,12 +411,24 @@ void PanelWindow::Show() {
   const RECT wa = WorkAreaRect();
   const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
   const int width = PanelWidthPx();
-  const int height = (wa.bottom - wa.top) - margin * 2;
   const int toX = wa.right - width - margin;
-  const int y = wa.top + margin;
   // Fully past the right edge (clear of DWM shadow) — same size as final, translate only.
   const int fromX = wa.right + dpi::Scale(32, CurrentDpi());
 
+  // Size list tall enough to measure a row, populate, then shrink to content.
+  const int maxH = (wa.bottom - wa.top) - margin * 2;
+  SetWindowPos(
+      hwnd_,
+      HWND_TOPMOST,
+      toX,
+      wa.bottom - margin - maxH,
+      width,
+      maxH,
+      SWP_NOACTIVATE | SWP_HIDEWINDOW);
+  Layout();
+  PopulateList();
+  const int height = PanelHeightPx(wa);
+  const int y = wa.bottom - margin - height;
   SetWindowPos(
       hwnd_,
       HWND_TOPMOST,
@@ -354,7 +438,6 @@ void PanelWindow::Show() {
       height,
       SWP_NOACTIVATE | SWP_HIDEWINDOW);
   Layout();
-  Refresh();
   if (listView_) {
     UpdateColumnWidth();
   }
