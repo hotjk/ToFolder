@@ -155,7 +155,7 @@ bool PanelWindow::Create(HWND owner) {
 
   const RECT wa = WorkAreaRect();
   hwnd_ = CreateWindowExW(
-      WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
+      WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
       L"ToFolderPanelClass",
       L"ToFolder",
       WS_POPUP | WS_CLIPCHILDREN,
@@ -421,6 +421,7 @@ void PanelWindow::Refresh() {
       height,
       SWP_NOACTIVATE | SWP_NOCOPYBITS);
   Layout();
+  EnsureSelection();
 }
 
 void PanelWindow::Show() {
@@ -467,6 +468,11 @@ void PanelWindow::Show() {
   }
 
   SlideIn(hwnd_, fromX, toX, y);
+  EnsureSelection();
+  SetForegroundWindow(hwnd_);
+  if (listView_) {
+    SetFocus(listView_);
+  }
 }
 
 void PanelWindow::Hide() {
@@ -474,6 +480,8 @@ void PanelWindow::Hide() {
     return;
   }
 
+  // Avoid re-entrancy from WM_ACTIVATE(WA_INACTIVE) while sliding out.
+  suppressDeactivateHide_ = true;
   ApplyWin11Chrome(hwnd_);
 
   RECT rc = {};
@@ -485,6 +493,7 @@ void PanelWindow::Hide() {
 
   SlideOut(hwnd_, fromX, toX, y);
   ShowWindow(hwnd_, SW_HIDE);
+  suppressDeactivateHide_ = false;
 }
 
 void PanelWindow::Toggle() {
@@ -519,6 +528,31 @@ int PanelWindow::HitTestItem(POINT clientPt) const {
     return -1;
   }
   return index;
+}
+
+int PanelWindow::SelectedIndex() const {
+  if (!listView_ || items_.empty()) {
+    return -1;
+  }
+  const int index = ListView_GetNextItem(listView_, -1, LVNI_SELECTED);
+  if (index < 0 || index >= static_cast<int>(items_.size())) {
+    return -1;
+  }
+  return index;
+}
+
+void PanelWindow::EnsureSelection() {
+  if (!listView_ || items_.empty()) {
+    return;
+  }
+  int index = SelectedIndex();
+  if (index < 0) {
+    index = 0;
+  }
+  ListView_SetItemState(listView_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+  ListView_SetItemState(listView_, index, LVIS_SELECTED | LVIS_FOCUSED,
+                        LVIS_SELECTED | LVIS_FOCUSED);
+  ListView_EnsureVisible(listView_, index, FALSE);
 }
 
 void PanelWindow::OpenAt(int index) {
@@ -603,6 +637,8 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING, IDM_LIST_DELETE, L"Delete");
 
+  // Popup menus deactivate the owner; don't treat that as an outside dismiss.
+  suppressDeactivateHide_ = true;
   SetForegroundWindow(hwnd_);
   const UINT cmd =
       TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, screenPt.x, screenPt.y,
@@ -614,6 +650,11 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
   while (PeekMessageW(&pump, nullptr, 0, 0, PM_REMOVE)) {
     TranslateMessage(&pump);
     DispatchMessageW(&pump);
+  }
+  suppressDeactivateHide_ = false;
+  SetForegroundWindow(hwnd_);
+  if (listView_) {
+    SetFocus(listView_);
   }
 
   if (cmd == 0) {
@@ -669,15 +710,42 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_SIZE:
       Layout();
       return 0;
+    case WM_ACTIVATE:
+      if (LOWORD(wParam) == WA_INACTIVE && !suppressDeactivateHide_) {
+        if (owner_) {
+          PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+        }
+      }
+      return 0;
     case WM_KEYDOWN:
       if (wParam == VK_ESCAPE) {
-        Hide();
+        if (owner_) {
+          PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+        } else {
+          Hide();
+        }
         return 0;
       }
       break;
     case WM_NOTIFY: {
       auto* nmhdr = reinterpret_cast<LPNMHDR>(lParam);
       if (nmhdr->idFrom != IDC_FILE_LIST) {
+        break;
+      }
+      if (nmhdr->code == LVN_KEYDOWN) {
+        const auto* kd = reinterpret_cast<LPNMLVKEYDOWN>(lParam);
+        if (kd->wVKey == VK_RETURN) {
+          OpenAt(SelectedIndex());
+          return 0;
+        }
+        if (kd->wVKey == VK_ESCAPE) {
+          if (owner_) {
+            PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+          } else {
+            Hide();
+          }
+          return 0;
+        }
         break;
       }
       if (nmhdr->code == LVN_GETDISPINFOW) {
@@ -745,7 +813,11 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
       return 0;
     }
     case WM_CLOSE:
-      Hide();
+      if (owner_) {
+        PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+      } else {
+        Hide();
+      }
       return 0;
     case WM_DESTROY:
       hwnd_ = nullptr;

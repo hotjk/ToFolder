@@ -20,10 +20,9 @@ HWND g_hwnd = nullptr;
 TrayIcon g_tray;
 PanelWindow g_panel;
 DirectoryWatcher g_watcher;
-HHOOK g_mouseHook = nullptr;
-HHOOK g_keyboardHook = nullptr;
 std::wstring g_watchPath;
 config::SortMode g_sortMode = config::SortMode::ByTime;
+ULONGLONG g_panelHiddenAt = 0;
 
 void UpdateTrayTip() {
   if (g_watchPath.empty()) {
@@ -34,66 +33,6 @@ void UpdateTrayTip() {
       tip = tip.substr(0, 117) + L"...";
     }
     g_tray.SetTip(tip);
-  }
-}
-
-void UninstallDismissHooks() {
-  if (g_mouseHook) {
-    UnhookWindowsHookEx(g_mouseHook);
-    g_mouseHook = nullptr;
-  }
-  if (g_keyboardHook) {
-    UnhookWindowsHookEx(g_keyboardHook);
-    g_keyboardHook = nullptr;
-  }
-}
-
-bool PointInTrayIcon(POINT pt) {
-  NOTIFYICONIDENTIFIER id = {};
-  id.cbSize = sizeof(id);
-  id.hWnd = g_hwnd;
-  id.uID = 1;
-  RECT rc = {};
-  if (FAILED(Shell_NotifyIconGetRect(&id, &rc))) {
-    return false;
-  }
-  InflateRect(&rc, 4, 4);
-  return PtInRect(&rc, pt) != FALSE;
-}
-
-LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wParam, LPARAM lParam) {
-  if (code == HC_ACTION && g_panel.IsVisible()) {
-    if (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN || wParam == WM_MBUTTONDOWN) {
-      const auto* info = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
-      const POINT pt = info->pt;
-      if (!g_panel.ContainsPoint(pt) && !PointInTrayIcon(pt)) {
-        PostMessageW(g_hwnd, WM_REQUEST_HIDE, 0, 0);
-      }
-    }
-  }
-  return CallNextHookEx(g_mouseHook, code, wParam, lParam);
-}
-
-LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM wParam, LPARAM lParam) {
-  if (code == HC_ACTION && g_panel.IsVisible()) {
-    if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
-      const auto* info = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
-      if (info->vkCode == VK_ESCAPE) {
-        PostMessageW(g_hwnd, WM_REQUEST_HIDE, 0, 0);
-        return 1;  // swallow so other apps don't also see Esc
-      }
-    }
-  }
-  return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
-}
-
-void InstallDismissHooks() {
-  HMODULE mod = GetModuleHandleW(nullptr);
-  if (!g_mouseHook) {
-    g_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, mod, 0);
-  }
-  if (!g_keyboardHook) {
-    g_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, mod, 0);
   }
 }
 
@@ -172,13 +111,15 @@ void ShowPanel() {
   g_tray.SetUnread(false);
   g_panel.Show();
   g_tray.SetPanelOpen(true);
-  InstallDismissHooks();
 }
 
 void HidePanel() {
+  if (!g_panel.IsVisible()) {
+    return;
+  }
   g_panel.Hide();
   g_tray.SetPanelOpen(false);
-  UninstallDismissHooks();
+  g_panelHiddenAt = GetTickCount64();
 }
 
 void ShowContextMenu(HWND hwnd) {
@@ -248,6 +189,10 @@ void OnTrayLeftClick() {
     HidePanel();
     return;
   }
+  // Clicking the tray deactivates the panel first; ignore the reopen from that same click.
+  if (GetTickCount64() - g_panelHiddenAt < 250) {
+    return;
+  }
   if (!HasWatchFolder()) {
     std::wstring path;
     if (ChooseFolder(g_hwnd, path)) {
@@ -291,7 +236,6 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
     }
 
     case WM_DESTROY:
-      UninstallDismissHooks();
       g_watcher.Stop();
       g_tray.Remove();
       g_panel.Destroy();

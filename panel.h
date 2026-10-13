@@ -42,12 +42,14 @@ class PanelWindow {
   void EnsureList();
   void EnsureListIcons();
   void EnsureFont();
+  void EnsureSelection();
   RECT WorkAreaRect() const;
   UINT CurrentDpi() const;
   int PanelWidthPx() const;
   int RowHeightPx() const;
   int PanelHeightPx(const RECT& workArea) const;
   int HitTestItem(POINT clientPt) const;
+  int SelectedIndex() const;
 
   HWND hwnd_ = nullptr;
   HWND owner_ = nullptr;
@@ -57,4 +59,5 @@ class PanelWindow {
   config::SortMode sortMode_ = config::SortMode::ByTime;
   std::vector<FileEntry> items_;
   bool created_ = false;
+  bool suppressDeactivateHide_ = false;
 };
