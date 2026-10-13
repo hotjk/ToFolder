@@ -20,6 +20,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 - If no watch folder is set, left-click opens a folder picker
 - Tray glyphs follow taskbar light/dark; menus and panel follow app light/dark
 - Optional global hotkey to toggle the panel (**Hotkey...** in the tray menu)
+- Optional **Start with Windows** (off by default; HKCU Run)
 
 ## Tray menu
 
@@ -31,6 +32,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 | Sort by time / name | List sort order (check marks current) |
 | Show hidden files | Include hidden items |
 | Expand folders | Navigate into subfolders in the panel (`..` and Backspace) |
+| Start with Windows | Launch at sign-in (off by default) |
 | Hotkey... | Enable / change the global hotkey (toggle panel) |
 | About... | Open the GitHub repository |
 | Exit | Quit |

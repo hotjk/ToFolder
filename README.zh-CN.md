@@ -20,6 +20,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 - 未选择监控文件夹时，左键点击托盘会弹出「选择文件夹」对话框
 - 托盘图标随任务栏深浅色自动切换黑线/白线；菜单与面板随应用深浅色主题
 - 可选全局热键切换面板（托盘菜单 **Hotkey...** 设置）
+- 可选 **Start with Windows** 开机自启（默认关闭；写入 HKCU Run）
 
 ## 托盘菜单
 
@@ -31,6 +32,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 | Sort by time / name | 列表排序方式（勾选表示当前） |
 | Show hidden files | 是否显示隐藏文件 |
 | Expand folders | 在面板内进入子文件夹（含 `..` 与 Backspace） |
+| Start with Windows | 登录时自动启动（默认关闭） |
 | Hotkey... | 开启/设置全局热键（切换面板） |
 | About... | 打开 GitHub 仓库页面 |
 | Exit | 退出程序 |

@@ -154,6 +154,47 @@ void HidePanel() {
   g_panelHiddenAt = GetTickCount64();
 }
 
+constexpr wchar_t kRunKeyPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+constexpr wchar_t kRunValueName[] = L"ToFolder";
+
+bool IsStartWithWindows() {
+  HKEY key = nullptr;
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_READ, &key) != ERROR_SUCCESS) {
+    return false;
+  }
+  wchar_t buf[MAX_PATH + 4] = {};
+  DWORD type = 0;
+  DWORD size = sizeof(buf);
+  const LSTATUS st =
+      RegQueryValueExW(key, kRunValueName, nullptr, &type, reinterpret_cast<LPBYTE>(buf), &size);
+  RegCloseKey(key);
+  return st == ERROR_SUCCESS && type == REG_SZ && buf[0] != L'\0';
+}
+
+bool SetStartWithWindows(bool enable) {
+  HKEY key = nullptr;
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) {
+    return false;
+  }
+  bool ok = false;
+  if (enable) {
+    wchar_t exePath[MAX_PATH] = {};
+    const DWORD n = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) {
+      std::wstring value = L"\"";
+      value += exePath;
+      value += L"\"";
+      ok = RegSetValueExW(key, kRunValueName, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
+                          static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+    }
+  } else {
+    const LSTATUS st = RegDeleteValueW(key, kRunValueName);
+    ok = (st == ERROR_SUCCESS || st == ERROR_FILE_NOT_FOUND);
+  }
+  RegCloseKey(key);
+  return ok;
+}
+
 void ShowContextMenu(HWND hwnd) {
   POINT pt = {};
   GetCursorPos(&pt);
@@ -186,6 +227,11 @@ void ShowContextMenu(HWND hwnd) {
       MF_STRING | (g_expandFolders ? MF_CHECKED : MF_UNCHECKED),
       IDM_EXPAND_FOLDERS,
       L"Expand folders");
+  AppendMenuW(
+      menu,
+      MF_STRING | (IsStartWithWindows() ? MF_CHECKED : MF_UNCHECKED),
+      IDM_START_WITH_WINDOWS,
+      L"Start with Windows");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING, IDM_HOTKEY, L"Hotkey...");
   AppendMenuW(menu, MF_STRING, IDM_ABOUT, L"About...");
@@ -228,6 +274,12 @@ void ShowContextMenu(HWND hwnd) {
       break;
     case IDM_EXPAND_FOLDERS:
       ApplyExpandFolders(!g_expandFolders, true);
+      break;
+    case IDM_START_WITH_WINDOWS:
+      if (!SetStartWithWindows(!IsStartWithWindows())) {
+        MessageBoxW(hwnd, L"Could not update the Windows startup setting.", L"ToFolder",
+                    MB_OK | MB_ICONERROR);
+      }
       break;
     case IDM_HOTKEY: {
       bool enabled = g_hotkeyEnabled;
