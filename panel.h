@@ -31,6 +31,7 @@ class PanelWindow {
   void SetExpandFolders(bool expandFolders);
   bool ExpandFolders() const { return expandFolders_; }
   void Refresh();
+  void RefreshTheme();
   bool ContainsPoint(POINT pt) const;
 
  private:
@@ -47,6 +48,7 @@ class PanelWindow {
   void EnsureListIcons();
   void EnsureFont();
   void EnsureSelection();
+  void ApplyTheme();
   void NavigateTo(const std::wstring& path);
   void NavigateUp();
   void ApplyVisibleSize(bool allowShrink);
@@ -66,6 +68,8 @@ class PanelWindow {
   HWND owner_ = nullptr;
   HWND listView_ = nullptr;
   HFONT listFont_ = nullptr;
+  HBRUSH bgBrush_ = nullptr;
+  bool appsLight_ = true;
   std::wstring watchPath_;
   std::wstring browsePath_;
   config::SortMode sortMode_ = config::SortMode::ByTime;

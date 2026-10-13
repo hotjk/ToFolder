@@ -2,7 +2,10 @@
 
 1 24 "app.manifest"
 
-IDI_APP         ICON "assets\\folder.ico"
-IDI_FOLDER      ICON "assets\\folder.ico"
-IDI_FOLDER_OPEN ICON "assets\\folder2-open.ico"
-IDI_FOLDER_FILL ICON "assets\\folder-fill.ico"
+IDI_APP               ICON "assets\\folder.ico"
+IDI_FOLDER            ICON "assets\\folder.ico"
+IDI_FOLDER_OPEN       ICON "assets\\folder2-open.ico"
+IDI_FOLDER_FILL       ICON "assets\\folder-fill.ico"
+IDI_FOLDER_LIGHT      ICON "assets\\folder-light.ico"
+IDI_FOLDER_OPEN_LIGHT ICON "assets\\folder2-open-light.ico"
+IDI_FOLDER_FILL_LIGHT ICON "assets\\folder-fill-light.ico"

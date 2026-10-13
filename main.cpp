@@ -4,6 +4,7 @@
 #include "icon_load.h"
 #include "panel.h"
 #include "resource.h"
+#include "theme.h"
 #include "tray.h"
 #include "watcher.h"
 
@@ -186,6 +187,7 @@ void ShowContextMenu(HWND hwnd) {
   AppendMenuW(menu, MF_STRING, IDM_ABOUT, L"About...");
   AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Exit");
 
+  theme::PreparePopupMenu(hwnd);
   SetForegroundWindow(hwnd);
   const UINT cmd =
       TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd,
@@ -291,6 +293,16 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
       return 0;
     }
 
+    case WM_SETTINGCHANGE:
+      if (lParam == 0 ||
+          _wcsicmp(reinterpret_cast<LPCWSTR>(lParam), L"ImmersiveColorSet") == 0) {
+        theme::AllowDarkForWindow(hwnd, !theme::AppsUseLightTheme());
+        g_tray.RefreshTheme();
+        g_panel.RefreshTheme();
+        theme::FlushMenusForTheme();
+      }
+      return 0;
+
     case WM_DESTROY:
       g_watcher.Stop();
       g_tray.Remove();
@@ -305,6 +317,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
 
 int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   dpi::EnablePerMonitorV2();
+  theme::InitDarkModeSupport();
 
   HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\ToFolderSingleInstance");
   if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS) {
@@ -343,6 +356,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   if (!g_hwnd) {
     return 1;
   }
+  theme::AllowDarkForWindow(g_hwnd, !theme::AppsUseLightTheme());
 
   g_watcher.SetCallback(OnDirChanged);
   g_panel.Create(g_hwnd);

@@ -17,6 +17,7 @@ class TrayIcon {
   void SetTip(const std::wstring& tip);
   void SetUnread(bool unread);
   void SetPanelOpen(bool open);
+  void RefreshTheme();
   bool HasUnread() const { return hasUnread_; }
   bool IsPanelOpen() const { return panelOpen_; }
 
@@ -35,5 +36,6 @@ class TrayIcon {
   bool added_ = false;
   bool hasUnread_ = false;
   bool panelOpen_ = false;
+  bool taskbarLight_ = true;
   std::wstring tip_;
 };

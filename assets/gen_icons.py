@@ -21,17 +21,17 @@ NAMES = ("folder", "folder2-open", "folder-fill")
 SIZES = (16, 32, 48, 64, 128, 256)
 
 
-def render_svg(name: str) -> Image.Image:
+def render_svg(name: str, fill: str, png_suffix: str = "") -> Image.Image:
     svg_path = os.path.join(BASE, f"{name}.svg")
     with open(svg_path, "rb") as f:
         svg = f.read()
-    svg = svg.replace(b'fill="currentColor"', b'fill="#000000"')
+    svg = svg.replace(b'fill="currentColor"', f'fill="{fill}"'.encode("ascii"))
 
     doc = fitz.open(stream=svg, filetype="svg")
     page = doc[0]
     zoom = 256 / max(page.rect.width, page.rect.height)
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=True)
-    png_path = os.path.join(BASE, f"{name}.png")
+    png_path = os.path.join(BASE, f"{name}{png_suffix}.png")
     pix.save(png_path)
 
     src = Image.open(png_path).convert("RGBA")
@@ -134,15 +134,21 @@ def read_ico_sizes(path: str) -> list[tuple[int, int, int]]:
         return out
 
 
+def write_named_ico(name: str, fill: str, out_stem: str, png_suffix: str = "") -> None:
+    src = render_svg(name, fill, png_suffix)
+    images = [src.resize((s, s), Image.Resampling.LANCZOS) for s in SIZES]
+    ico_path = os.path.join(BASE, f"{out_stem}.ico")
+    write_ico(ico_path, images)
+    sizes = read_ico_sizes(ico_path)
+    print(f"{out_stem}.ico -> {len(sizes)} images: " + ", ".join(f"{w}x{h}" for w, h, _ in sizes))
+    assert [w for w, _, _ in sizes] == list(SIZES), sizes
+
+
 def main() -> None:
     for name in NAMES:
-        src = render_svg(name)
-        images = [src.resize((s, s), Image.Resampling.LANCZOS) for s in SIZES]
-        ico_path = os.path.join(BASE, f"{name}.ico")
-        write_ico(ico_path, images)
-        sizes = read_ico_sizes(ico_path)
-        print(f"{name}.ico -> {len(sizes)} images: " + ", ".join(f"{w}x{h}" for w, h, _ in sizes))
-        assert [w for w, _, _ in sizes] == list(SIZES), sizes
+        # Black strokes for light taskbar; white strokes for dark taskbar.
+        write_named_ico(name, "#000000", name)
+        write_named_ico(name, "#FFFFFF", f"{name}-light", png_suffix="-light")
 
 
 if __name__ == "__main__":

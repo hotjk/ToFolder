@@ -2,6 +2,7 @@
 
 #include "icon_load.h"
 #include "resource.h"
+#include "theme.h"
 
 #include <shellapi.h>
 
@@ -45,9 +46,14 @@ bool TrayIcon::LoadIcons() {
   HINSTANCE inst = GetModuleHandleW(nullptr);
   // Exact tray-slot pixels: shell will not re-scale a huge 256px icon (which looked blurry).
   const int cx = TrayIconSizePx(hwnd_);
-  iconNormal_ = LoadAppIcon(inst, IDI_FOLDER, cx, cx);
-  iconOpen_ = LoadAppIcon(inst, IDI_FOLDER_OPEN, cx, cx);
-  iconPlus_ = LoadAppIcon(inst, IDI_FOLDER_FILL, cx, cx);
+  taskbarLight_ = theme::SystemUsesLightTheme();
+  // Light taskbar → black strokes; dark taskbar → white strokes (*_LIGHT resources).
+  const int idNormal = taskbarLight_ ? IDI_FOLDER : IDI_FOLDER_LIGHT;
+  const int idOpen = taskbarLight_ ? IDI_FOLDER_OPEN : IDI_FOLDER_OPEN_LIGHT;
+  const int idPlus = taskbarLight_ ? IDI_FOLDER_FILL : IDI_FOLDER_FILL_LIGHT;
+  iconNormal_ = LoadAppIcon(inst, idNormal, cx, cx);
+  iconOpen_ = LoadAppIcon(inst, idOpen, cx, cx);
+  iconPlus_ = LoadAppIcon(inst, idPlus, cx, cx);
   return iconNormal_ && iconOpen_ && iconPlus_;
 }
 
@@ -111,6 +117,17 @@ void TrayIcon::ApplyIcon() {
   nid_.hIcon = CurrentIcon();
   CopyTip(nid_, tip_);
   Shell_NotifyIconW(NIM_MODIFY, &nid_);
+}
+
+void TrayIcon::RefreshTheme() {
+  const bool light = theme::SystemUsesLightTheme();
+  if (light == taskbarLight_ && iconNormal_) {
+    return;
+  }
+  if (!LoadIcons()) {
+    return;
+  }
+  ApplyIcon();
 }
 
 void TrayIcon::SetUnread(bool unread) {

@@ -3,11 +3,13 @@
 #include "app_messages.h"
 #include "dpi.h"
 #include "resource.h"
+#include "theme.h"
 
 #include <commctrl.h>
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <uxtheme.h>
 #include <windowsx.h>
 
 #include <cmath>
@@ -177,6 +179,7 @@ bool PanelWindow::Create(HWND owner) {
   created_ = true;
   EnsureFont();
   EnsureList();
+  ApplyTheme();
   Layout();
   return true;
 }
@@ -190,6 +193,10 @@ void PanelWindow::Destroy() {
   if (listFont_) {
     DeleteObject(listFont_);
     listFont_ = nullptr;
+  }
+  if (bgBrush_) {
+    DeleteObject(bgBrush_);
+    bgBrush_ = nullptr;
   }
   created_ = false;
 }
@@ -301,6 +308,53 @@ void PanelWindow::EnsureList() {
   if (listFont_) {
     SendMessageW(listView_, WM_SETFONT, reinterpret_cast<WPARAM>(listFont_), TRUE);
   }
+}
+
+void PanelWindow::ApplyTheme() {
+  if (!hwnd_) {
+    return;
+  }
+
+  appsLight_ = theme::AppsUseLightTheme();
+  const bool dark = !appsLight_;
+
+  theme::AllowDarkForWindow(hwnd_, dark);
+  theme::ApplyImmersiveDarkFrame(hwnd_, dark);
+
+  if (bgBrush_) {
+    DeleteObject(bgBrush_);
+    bgBrush_ = nullptr;
+  }
+
+  COLORREF bk = GetSysColor(COLOR_WINDOW);
+  COLORREF text = GetSysColor(COLOR_WINDOWTEXT);
+  if (dark) {
+    bk = RGB(32, 32, 32);
+    text = RGB(240, 240, 240);
+  }
+  bgBrush_ = CreateSolidBrush(bk);
+
+  if (listView_) {
+    theme::AllowDarkForWindow(listView_, dark);
+    SetWindowTheme(listView_, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
+    ListView_SetBkColor(listView_, bk);
+    ListView_SetTextBkColor(listView_, bk);
+    ListView_SetTextColor(listView_, text);
+    InvalidateRect(listView_, nullptr, TRUE);
+  }
+
+  InvalidateRect(hwnd_, nullptr, TRUE);
+}
+
+void PanelWindow::RefreshTheme() {
+  if (!created_) {
+    return;
+  }
+  const bool light = theme::AppsUseLightTheme();
+  if (light == appsLight_ && bgBrush_) {
+    return;
+  }
+  ApplyTheme();
 }
 
 void PanelWindow::EnsureListIcons() {
@@ -786,6 +840,7 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
 
   // Popup menus deactivate the owner; don't treat that as an outside dismiss.
   suppressDeactivateHide_ = true;
+  theme::PreparePopupMenu(hwnd_);
   SetForegroundWindow(hwnd_);
   const UINT cmd =
       TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, screenPt.x, screenPt.y,
@@ -856,6 +911,14 @@ LRESULT CALLBACK PanelWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
 LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
   switch (msg) {
+    case WM_ERASEBKGND: {
+      HDC hdc = reinterpret_cast<HDC>(wParam);
+      RECT rc = {};
+      GetClientRect(hwnd_, &rc);
+      HBRUSH brush = bgBrush_ ? bgBrush_ : reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+      FillRect(hdc, &rc, brush);
+      return 1;
+    }
     case WM_DPICHANGED: {
       const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
       EnsureFont();
