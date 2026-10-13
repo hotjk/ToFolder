@@ -21,6 +21,7 @@ TrayIcon g_tray;
 PanelWindow g_panel;
 DirectoryWatcher g_watcher;
 HHOOK g_mouseHook = nullptr;
+HHOOK g_keyboardHook = nullptr;
 std::wstring g_watchPath;
 
 void UpdateTrayTip() {
@@ -35,10 +36,14 @@ void UpdateTrayTip() {
   }
 }
 
-void UninstallMouseHook() {
+void UninstallDismissHooks() {
   if (g_mouseHook) {
     UnhookWindowsHookEx(g_mouseHook);
     g_mouseHook = nullptr;
+  }
+  if (g_keyboardHook) {
+    UnhookWindowsHookEx(g_keyboardHook);
+    g_keyboardHook = nullptr;
   }
 }
 
@@ -68,11 +73,27 @@ LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wParam, LPARAM lParam) {
   return CallNextHookEx(g_mouseHook, code, wParam, lParam);
 }
 
-void InstallMouseHook() {
-  if (g_mouseHook) {
-    return;
+LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM wParam, LPARAM lParam) {
+  if (code == HC_ACTION && g_panel.IsVisible()) {
+    if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
+      const auto* info = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+      if (info->vkCode == VK_ESCAPE) {
+        PostMessageW(g_hwnd, WM_REQUEST_HIDE, 0, 0);
+        return 1;  // swallow so other apps don't also see Esc
+      }
+    }
   }
-  g_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandleW(nullptr), 0);
+  return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
+}
+
+void InstallDismissHooks() {
+  HMODULE mod = GetModuleHandleW(nullptr);
+  if (!g_mouseHook) {
+    g_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, mod, 0);
+  }
+  if (!g_keyboardHook) {
+    g_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, mod, 0);
+  }
 }
 
 void OnDirChanged(bool hasAdded) {
@@ -138,13 +159,13 @@ void ShowPanel() {
   g_tray.SetUnread(false);
   g_panel.Show();
   g_tray.SetPanelOpen(true);
-  InstallMouseHook();
+  InstallDismissHooks();
 }
 
 void HidePanel() {
   g_panel.Hide();
   g_tray.SetPanelOpen(false);
-  UninstallMouseHook();
+  UninstallDismissHooks();
 }
 
 void ShowContextMenu(HWND hwnd) {
@@ -240,7 +261,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
     }
 
     case WM_DESTROY:
-      UninstallMouseHook();
+      UninstallDismissHooks();
       g_watcher.Stop();
       g_tray.Remove();
       g_panel.Destroy();
