@@ -100,6 +100,11 @@ Settings Load() {
       settings.expandFolders = ParseBool(line.substr(expandKey.size()), false);
       continue;
     }
+    const std::wstring watchEnKey = L"WatchEnabled=";
+    if (line.compare(0, watchEnKey.size(), watchEnKey) == 0) {
+      settings.watchEnabled = ParseBool(line.substr(watchEnKey.size()), true);
+      continue;
+    }
     const std::wstring hotkeyEnKey = L"HotkeyEnabled=";
     if (line.compare(0, hotkeyEnKey.size(), hotkeyEnKey) == 0) {
       settings.hotkeyEnabled = ParseBool(line.substr(hotkeyEnKey.size()), false);
@@ -126,6 +131,7 @@ bool Save(const Settings& settings) {
   out << L"SortMode=" << SortModeToString(settings.sortMode) << L"\n";
   out << L"ShowHidden=" << (settings.showHidden ? L"true" : L"false") << L"\n";
   out << L"ExpandFolders=" << (settings.expandFolders ? L"true" : L"false") << L"\n";
+  out << L"WatchEnabled=" << (settings.watchEnabled ? L"true" : L"false") << L"\n";
   out << L"HotkeyEnabled=" << (settings.hotkeyEnabled ? L"true" : L"false") << L"\n";
   out << L"Hotkey=" << settings.hotkey << L"\n";
   return static_cast<bool>(out);
@@ -168,6 +174,16 @@ bool LoadExpandFolders() {
 bool SaveExpandFolders(bool expandFolders) {
   Settings settings = Load();
   settings.expandFolders = expandFolders;
+  return Save(settings);
+}
+
+bool LoadWatchEnabled() {
+  return Load().watchEnabled;
+}
+
+bool SaveWatchEnabled(bool enabled) {
+  Settings settings = Load();
+  settings.watchEnabled = enabled;
   return Save(settings);
 }
 

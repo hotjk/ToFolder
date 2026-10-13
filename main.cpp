@@ -28,6 +28,7 @@ std::wstring g_watchPath;
 config::SortMode g_sortMode = config::SortMode::ByTime;
 bool g_showHidden = false;
 bool g_expandFolders = false;
+bool g_watchEnabled = true;
 bool g_hotkeyEnabled = false;
 std::wstring g_hotkeyText = L"Ctrl+Shift+F";
 ULONGLONG g_panelHiddenAt = 0;
@@ -91,11 +92,25 @@ void ApplyWatchPath(const std::wstring& path, bool save) {
   g_panel.SetExpandFolders(g_expandFolders);
   UpdateTrayTip();
   g_watcher.Stop();
-  if (DirectoryWatcher::PathExists(g_watchPath)) {
+  if (g_watchEnabled && DirectoryWatcher::PathExists(g_watchPath)) {
     g_watcher.Start(g_watchPath);
   }
   if (g_panel.IsVisible()) {
     g_panel.Refresh();
+  }
+}
+
+void ApplyWatchEnabled(bool enabled, bool save) {
+  g_watchEnabled = enabled;
+  if (save) {
+    config::SaveWatchEnabled(g_watchEnabled);
+  }
+  g_watcher.Stop();
+  if (g_watchEnabled && DirectoryWatcher::PathExists(g_watchPath)) {
+    g_watcher.Start(g_watchPath);
+  }
+  if (!g_watchEnabled) {
+    g_tray.SetUnread(false);
   }
 }
 
@@ -206,6 +221,11 @@ void ShowContextMenu(HWND hwnd) {
     EnableMenuItem(menu, IDM_OPEN_FOLDER, MF_BYCOMMAND | MF_GRAYED);
   }
   AppendMenuW(menu, MF_STRING, IDM_CHOOSE_FOLDER, L"Choose folder...");
+  AppendMenuW(
+      menu,
+      MF_STRING | (g_watchEnabled ? MF_CHECKED : MF_UNCHECKED),
+      IDM_WATCH_ENABLED,
+      L"Watch for new files");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(
       menu,
@@ -263,6 +283,9 @@ void ShowContextMenu(HWND hwnd) {
       }
       break;
     }
+    case IDM_WATCH_ENABLED:
+      ApplyWatchEnabled(!g_watchEnabled, true);
+      break;
     case IDM_SORT_TIME:
       ApplySortMode(config::SortMode::ByTime, true);
       break;
@@ -443,6 +466,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   g_sortMode = settings.sortMode;
   g_showHidden = settings.showHidden;
   g_expandFolders = settings.expandFolders;
+  g_watchEnabled = settings.watchEnabled;
   g_hotkeyEnabled = settings.hotkeyEnabled;
   g_hotkeyText = settings.hotkey.empty() ? L"Ctrl+Shift+F" : settings.hotkey;
   g_panel.SetSortMode(g_sortMode);

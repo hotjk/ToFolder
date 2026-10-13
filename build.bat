@@ -56,7 +56,7 @@ if errorlevel 1 (
 copy /Y config.ini out\config.ini >nul
 copy /Y assets\folder.ico out\folder.ico >nul
 copy /Y assets\folder2-open.ico out\folder2-open.ico >nul
-copy /Y assets\folder-plus.ico out\folder-plus.ico >nul
+copy /Y assets\folder-fill.ico out\folder-fill.ico >nul
 
 echo.
 echo Verifying icons embedded in EXE ...

@@ -12,14 +12,15 @@
 #define IDM_OPEN_PANEL          1001
 #define IDM_OPEN_FOLDER         1002
 #define IDM_CHOOSE_FOLDER       1003
-#define IDM_SORT_TIME           1004
-#define IDM_SORT_NAME           1005
-#define IDM_SHOW_HIDDEN         1006
-#define IDM_EXPAND_FOLDERS      1007
-#define IDM_START_WITH_WINDOWS  1008
-#define IDM_HOTKEY              1009
-#define IDM_ABOUT               1010
-#define IDM_EXIT                1011
+#define IDM_WATCH_ENABLED       1004
+#define IDM_SORT_TIME           1005
+#define IDM_SORT_NAME           1006
+#define IDM_SHOW_HIDDEN         1007
+#define IDM_EXPAND_FOLDERS      1008
+#define IDM_START_WITH_WINDOWS  1009
+#define IDM_HOTKEY              1010
+#define IDM_ABOUT               1011
+#define IDM_EXIT                1012
 
 #define IDM_LIST_OPEN           1101
 #define IDM_LIST_OPEN_LOCATION  1102

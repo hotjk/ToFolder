@@ -29,6 +29,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 | Open panel | 打开面板（未设置文件夹时禁用） |
 | Open folder | 在资源管理器中打开监控文件夹 |
 | Choose folder... | 选择要监控的文件夹 |
+| Watch for new files | 监控文件夹新增并标记未读（默认开启） |
 | Sort by time / name | 列表排序方式（勾选表示当前） |
 | Show hidden files | 是否显示隐藏文件 |
 | Expand folders | 在面板内进入子文件夹（含 `..` 与 Backspace） |
@@ -53,6 +54,7 @@ WatchPath=
 SortMode=time
 ShowHidden=false
 ExpandFolders=false
+WatchEnabled=true
 HotkeyEnabled=false
 Hotkey=Ctrl+Shift+F
 ```
@@ -63,6 +65,7 @@ Hotkey=Ctrl+Shift+F
 | `SortMode` | `time` / `name` | 列表排序 |
 | `ShowHidden` | `true` / `false` | 显示隐藏文件 |
 | `ExpandFolders` | `true` / `false` | 面板内展开进入子目录 |
+| `WatchEnabled` | `true` / `false` | 监控新增文件（默认开启） |
 | `HotkeyEnabled` | `true` / `false` | 是否注册全局热键 |
 | `Hotkey` | 如 `Ctrl+Shift+F` | 热键组合（Ctrl/Alt/Shift/Win + 主键） |
 

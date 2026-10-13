@@ -29,6 +29,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 | Open panel | Show the panel (disabled if no folder is set) |
 | Open folder | Open the watch folder in Explorer |
 | Choose folder... | Pick the folder to watch |
+| Watch for new files | Monitor the folder and mark unread on new items (on by default) |
 | Sort by time / name | List sort order (check marks current) |
 | Show hidden files | Include hidden items |
 | Expand folders | Navigate into subfolders in the panel (`..` and Backspace) |
@@ -53,6 +54,7 @@ WatchPath=
 SortMode=time
 ShowHidden=false
 ExpandFolders=false
+WatchEnabled=true
 HotkeyEnabled=false
 Hotkey=Ctrl+Shift+F
 ```
@@ -63,6 +65,7 @@ Hotkey=Ctrl+Shift+F
 | `SortMode` | `time` / `name` | List sort |
 | `ShowHidden` | `true` / `false` | Show hidden files |
 | `ExpandFolders` | `true` / `false` | In-panel folder navigation |
+| `WatchEnabled` | `true` / `false` | Watch for new files (default on) |
 | `HotkeyEnabled` | `true` / `false` | Register the global hotkey |
 | `Hotkey` | e.g. `Ctrl+Shift+F` | Chord (Ctrl/Alt/Shift/Win + key) |
 
