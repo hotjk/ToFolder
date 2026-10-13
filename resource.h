@@ -16,11 +16,17 @@
 #define IDM_SORT_NAME           1005
 #define IDM_SHOW_HIDDEN         1006
 #define IDM_EXPAND_FOLDERS      1007
-#define IDM_ABOUT               1008
-#define IDM_EXIT                1009
+#define IDM_HOTKEY              1008
+#define IDM_ABOUT               1009
+#define IDM_EXIT                1010
 
 #define IDM_LIST_OPEN           1101
 #define IDM_LIST_OPEN_LOCATION  1102
 #define IDM_LIST_DELETE         1103
 
 #define IDC_FILE_LIST           2001
+
+#define IDD_HOTKEY              3001
+#define IDC_HOTKEY_ENABLE       3002
+#define IDC_HOTKEY_EDIT         3003
+#define IDC_HOTKEY_HINT         3004

@@ -1,6 +1,7 @@
 #include "app_messages.h"
 #include "config.h"
 #include "dpi.h"
+#include "hotkey.h"
 #include "icon_load.h"
 #include "panel.h"
 #include "resource.h"
@@ -27,6 +28,8 @@ std::wstring g_watchPath;
 config::SortMode g_sortMode = config::SortMode::ByTime;
 bool g_showHidden = false;
 bool g_expandFolders = false;
+bool g_hotkeyEnabled = false;
+std::wstring g_hotkeyText = L"Ctrl+Shift+F";
 ULONGLONG g_panelHiddenAt = 0;
 
 void UpdateTrayTip() {
@@ -184,6 +187,7 @@ void ShowContextMenu(HWND hwnd) {
       IDM_EXPAND_FOLDERS,
       L"Expand folders");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(menu, MF_STRING, IDM_HOTKEY, L"Hotkey...");
   AppendMenuW(menu, MF_STRING, IDM_ABOUT, L"About...");
   AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Exit");
 
@@ -225,6 +229,18 @@ void ShowContextMenu(HWND hwnd) {
     case IDM_EXPAND_FOLDERS:
       ApplyExpandFolders(!g_expandFolders, true);
       break;
+    case IDM_HOTKEY: {
+      bool enabled = g_hotkeyEnabled;
+      std::wstring text = g_hotkeyText;
+      if (hotkey::ShowSettingsDialog(hwnd, enabled, text)) {
+        g_hotkeyEnabled = enabled;
+        g_hotkeyText = text;
+        config::SaveHotkeySettings(g_hotkeyEnabled, g_hotkeyText);
+        // Dialog already registered via Apply; keep state in sync.
+        hotkey::Apply(hwnd, g_hotkeyEnabled, g_hotkeyText);
+      }
+      break;
+    }
     case IDM_ABOUT: {
       const int choice = MessageBoxW(
           hwnd,
@@ -293,6 +309,12 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
       return 0;
     }
 
+    case WM_HOTKEY:
+      if (static_cast<int>(wParam) == hotkey::kHotkeyId) {
+        OnTrayLeftClick();
+      }
+      return 0;
+
     case WM_SETTINGCHANGE:
       if (lParam == 0 ||
           _wcsicmp(reinterpret_cast<LPCWSTR>(lParam), L"ImmersiveColorSet") == 0) {
@@ -304,6 +326,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
       return 0;
 
     case WM_DESTROY:
+      hotkey::Unregister(hwnd);
       g_watcher.Stop();
       g_tray.Remove();
       g_panel.Destroy();
@@ -368,10 +391,16 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   g_sortMode = settings.sortMode;
   g_showHidden = settings.showHidden;
   g_expandFolders = settings.expandFolders;
+  g_hotkeyEnabled = settings.hotkeyEnabled;
+  g_hotkeyText = settings.hotkey.empty() ? L"Ctrl+Shift+F" : settings.hotkey;
   g_panel.SetSortMode(g_sortMode);
   g_panel.SetShowHidden(g_showHidden);
   g_panel.SetExpandFolders(g_expandFolders);
   ApplyWatchPath(settings.watchPath, false);
+  if (!hotkey::Apply(g_hwnd, g_hotkeyEnabled, g_hotkeyText) && g_hotkeyEnabled) {
+    // Keep running without the hotkey if it conflicts at startup.
+    g_hotkeyEnabled = false;
+  }
 
   MSG msg = {};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

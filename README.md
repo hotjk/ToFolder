@@ -17,6 +17,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 - 点击面板外或失去焦点关闭面板
 - 未选择监控文件夹时，左键点击托盘会弹出「选择文件夹」对话框
 - 托盘图标随任务栏深浅色自动切换黑线/白线；菜单与面板随应用深浅色主题
+- 可选全局热键切换面板（托盘菜单 **Hotkey...** 设置）
 
 ## 托盘菜单
 
@@ -28,6 +29,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 | Sort by time / name | 列表排序方式（勾选表示当前） |
 | Show hidden files | 是否显示隐藏文件 |
 | Expand folders | 在面板内进入子文件夹（含 `..` 与 Backspace） |
+| Hotkey... | 开启/设置全局热键（切换面板） |
 | About... | 打开 GitHub 仓库页面 |
 | Exit | 退出程序 |
 
@@ -47,6 +49,8 @@ WatchPath=
 SortMode=time
 ShowHidden=false
 ExpandFolders=false
+HotkeyEnabled=false
+Hotkey=Ctrl+Shift+F
 ```
 
 | 键 | 取值 | 说明 |
@@ -55,6 +59,8 @@ ExpandFolders=false
 | `SortMode` | `time` / `name` | 列表排序 |
 | `ShowHidden` | `true` / `false` | 显示隐藏文件 |
 | `ExpandFolders` | `true` / `false` | 面板内展开进入子目录 |
+| `HotkeyEnabled` | `true` / `false` | 是否注册全局热键 |
+| `Hotkey` | 如 `Ctrl+Shift+F` | 热键组合（Ctrl/Alt/Shift/Win + 主键） |
 
 也可通过托盘菜单修改，选项会写回该文件。
 
@@ -99,10 +105,11 @@ panel.cpp         右侧滑出面板、列表、导航与右键菜单
 watcher.cpp       目录监控与枚举排序
 config.cpp        读写 config.ini
 theme.cpp         应用/任务栏主题与暗色菜单 API
+hotkey.cpp        全局热键注册与设置对话框
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     高质量图标加载
 assets/           Bootstrap Icons SVG、黑/白 ICO 生成脚本
-resource.rc       清单与图标资源
+resource.rc       清单、图标与热键对话框
 build.bat         一键编译
 ```
 

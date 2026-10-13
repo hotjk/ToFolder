@@ -14,6 +14,8 @@ struct Settings {
   SortMode sortMode = SortMode::ByTime;
   bool showHidden = false;
   bool expandFolders = false;
+  bool hotkeyEnabled = false;
+  std::wstring hotkey = L"Ctrl+Shift+F";
 };
 
 std::wstring GetExeDirectory();
@@ -30,5 +32,7 @@ bool LoadShowHidden();
 bool SaveShowHidden(bool showHidden);
 bool LoadExpandFolders();
 bool SaveExpandFolders(bool expandFolders);
+bool LoadHotkeyEnabled();
+bool SaveHotkeySettings(bool enabled, const std::wstring& hotkey);
 
 }  // namespace config

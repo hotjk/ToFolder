@@ -98,6 +98,19 @@ Settings Load() {
     const std::wstring expandKey = L"ExpandFolders=";
     if (line.compare(0, expandKey.size(), expandKey) == 0) {
       settings.expandFolders = ParseBool(line.substr(expandKey.size()), false);
+      continue;
+    }
+    const std::wstring hotkeyEnKey = L"HotkeyEnabled=";
+    if (line.compare(0, hotkeyEnKey.size(), hotkeyEnKey) == 0) {
+      settings.hotkeyEnabled = ParseBool(line.substr(hotkeyEnKey.size()), false);
+      continue;
+    }
+    const std::wstring hotkeyKey = L"Hotkey=";
+    if (line.compare(0, hotkeyKey.size(), hotkeyKey) == 0) {
+      const std::wstring value = Trim(line.substr(hotkeyKey.size()));
+      if (!value.empty()) {
+        settings.hotkey = value;
+      }
     }
   }
   return settings;
@@ -113,6 +126,8 @@ bool Save(const Settings& settings) {
   out << L"SortMode=" << SortModeToString(settings.sortMode) << L"\n";
   out << L"ShowHidden=" << (settings.showHidden ? L"true" : L"false") << L"\n";
   out << L"ExpandFolders=" << (settings.expandFolders ? L"true" : L"false") << L"\n";
+  out << L"HotkeyEnabled=" << (settings.hotkeyEnabled ? L"true" : L"false") << L"\n";
+  out << L"Hotkey=" << settings.hotkey << L"\n";
   return static_cast<bool>(out);
 }
 
@@ -153,6 +168,19 @@ bool LoadExpandFolders() {
 bool SaveExpandFolders(bool expandFolders) {
   Settings settings = Load();
   settings.expandFolders = expandFolders;
+  return Save(settings);
+}
+
+bool LoadHotkeyEnabled() {
+  return Load().hotkeyEnabled;
+}
+
+bool SaveHotkeySettings(bool enabled, const std::wstring& hotkey) {
+  Settings settings = Load();
+  settings.hotkeyEnabled = enabled;
+  if (!hotkey.empty()) {
+    settings.hotkey = hotkey;
+  }
   return Save(settings);
 }
 
