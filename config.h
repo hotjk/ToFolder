@@ -12,6 +12,7 @@ enum class SortMode {
 struct Settings {
   std::wstring watchPath;
   SortMode sortMode = SortMode::ByTime;
+  bool showHidden = false;
 };
 
 std::wstring GetExeDirectory();
@@ -24,5 +25,7 @@ std::wstring LoadWatchPath();
 bool SaveWatchPath(const std::wstring& path);
 SortMode LoadSortMode();
 bool SaveSortMode(SortMode mode);
+bool LoadShowHidden();
+bool SaveShowHidden(bool showHidden);
 
 }  // namespace config

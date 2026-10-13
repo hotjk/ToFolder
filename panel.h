@@ -26,6 +26,8 @@ class PanelWindow {
   void SetWatchPath(const std::wstring& path);
   void SetSortMode(config::SortMode mode);
   config::SortMode SortMode() const { return sortMode_; }
+  void SetShowHidden(bool showHidden);
+  bool ShowHidden() const { return showHidden_; }
   void Refresh();
   bool ContainsPoint(POINT pt) const;
 
@@ -57,6 +59,7 @@ class PanelWindow {
   HFONT listFont_ = nullptr;
   std::wstring watchPath_;
   config::SortMode sortMode_ = config::SortMode::ByTime;
+  bool showHidden_ = false;
   std::vector<FileEntry> items_;
   bool created_ = false;
   bool suppressDeactivateHide_ = false;

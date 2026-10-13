@@ -33,7 +33,8 @@ class DirectoryWatcher {
   std::wstring GetPath() const;
 
   static std::vector<FileEntry> Enumerate(const std::wstring& path,
-                                          config::SortMode sortMode = config::SortMode::ByTime);
+                                          config::SortMode sortMode = config::SortMode::ByTime,
+                                          bool showHidden = false);
   static bool PathExists(const std::wstring& path);
 
  private:

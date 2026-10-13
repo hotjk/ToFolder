@@ -16,12 +16,15 @@
 
 namespace {
 
+constexpr wchar_t kGitHubRepoUrl[] = L"https://github.com/hotjk/ToFolder";
+
 HWND g_hwnd = nullptr;
 TrayIcon g_tray;
 PanelWindow g_panel;
 DirectoryWatcher g_watcher;
 std::wstring g_watchPath;
 config::SortMode g_sortMode = config::SortMode::ByTime;
+bool g_showHidden = false;
 ULONGLONG g_panelHiddenAt = 0;
 
 void UpdateTrayTip() {
@@ -79,6 +82,7 @@ void ApplyWatchPath(const std::wstring& path, bool save) {
   g_tray.SetUnread(false);
   g_panel.SetWatchPath(g_watchPath);
   g_panel.SetSortMode(g_sortMode);
+  g_panel.SetShowHidden(g_showHidden);
   UpdateTrayTip();
   g_watcher.Stop();
   if (DirectoryWatcher::PathExists(g_watchPath)) {
@@ -94,6 +98,17 @@ void ApplySortMode(config::SortMode mode, bool save) {
   g_panel.SetSortMode(g_sortMode);
   if (save) {
     config::SaveSortMode(g_sortMode);
+  }
+  if (g_panel.IsVisible()) {
+    g_panel.Refresh();
+  }
+}
+
+void ApplyShowHidden(bool showHidden, bool save) {
+  g_showHidden = showHidden;
+  g_panel.SetShowHidden(g_showHidden);
+  if (save) {
+    config::SaveShowHidden(g_showHidden);
   }
   if (g_panel.IsVisible()) {
     g_panel.Refresh();
@@ -144,7 +159,13 @@ void ShowContextMenu(HWND hwnd) {
       MF_STRING | (g_sortMode == config::SortMode::ByName ? MF_CHECKED : MF_UNCHECKED),
       IDM_SORT_NAME,
       L"Sort by name");
+  AppendMenuW(
+      menu,
+      MF_STRING | (g_showHidden ? MF_CHECKED : MF_UNCHECKED),
+      IDM_SHOW_HIDDEN,
+      L"Show hidden files");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(menu, MF_STRING, IDM_ABOUT, L"About...");
   AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Exit");
 
   SetForegroundWindow(hwnd);
@@ -178,6 +199,20 @@ void ShowContextMenu(HWND hwnd) {
     case IDM_SORT_NAME:
       ApplySortMode(config::SortMode::ByName, true);
       break;
+    case IDM_SHOW_HIDDEN:
+      ApplyShowHidden(!g_showHidden, true);
+      break;
+    case IDM_ABOUT: {
+      const int choice = MessageBoxW(
+          hwnd,
+          L"ToFolder\n\nGitHub:\nhttps://github.com/hotjk/ToFolder\n\nOpen the repository in your browser?",
+          L"About ToFolder",
+          MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1);
+      if (choice == IDYES) {
+        ShellExecuteW(hwnd, L"open", kGitHubRepoUrl, nullptr, nullptr, SW_SHOWNORMAL);
+      }
+      break;
+    }
     case IDM_EXIT:
       DestroyWindow(hwnd);
       break;
@@ -294,7 +329,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
   const config::Settings settings = config::Load();
   g_sortMode = settings.sortMode;
+  g_showHidden = settings.showHidden;
   g_panel.SetSortMode(g_sortMode);
+  g_panel.SetShowHidden(g_showHidden);
   ApplyWatchPath(settings.watchPath, false);
 
   MSG msg = {};

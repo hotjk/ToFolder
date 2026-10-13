@@ -34,7 +34,8 @@ bool DirectoryWatcher::PathExists(const std::wstring& path) {
 }
 
 std::vector<FileEntry> DirectoryWatcher::Enumerate(const std::wstring& path,
-                                                   config::SortMode sortMode) {
+                                                   config::SortMode sortMode,
+                                                   bool showHidden) {
   std::vector<FileEntry> items;
   if (!PathExists(path)) {
     return items;
@@ -49,6 +50,9 @@ std::vector<FileEntry> DirectoryWatcher::Enumerate(const std::wstring& path,
 
   do {
     if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) {
+      continue;
+    }
+    if (!showHidden && (fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)) {
       continue;
     }
     FileEntry entry;

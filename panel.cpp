@@ -376,13 +376,17 @@ void PanelWindow::SetSortMode(config::SortMode mode) {
   sortMode_ = mode;
 }
 
+void PanelWindow::SetShowHidden(bool showHidden) {
+  showHidden_ = showHidden;
+}
+
 void PanelWindow::PopulateList() {
   if (!listView_) {
     return;
   }
 
   const int top = ListView_GetTopIndex(listView_);
-  items_ = DirectoryWatcher::Enumerate(watchPath_, sortMode_);
+  items_ = DirectoryWatcher::Enumerate(watchPath_, sortMode_, showHidden_);
 
   // Virtual list: text comes from LVN_GETDISPINFO (smooth with many files)
   int count = static_cast<int>(items_.size());
@@ -644,21 +648,38 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
       TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, screenPt.x, screenPt.y,
                      0, hwnd_, nullptr);
   DestroyMenu(menu);
-  // Ensure the popup is visually dismissed before running the action.
-  PostMessageW(hwnd_, WM_NULL, 0, 0);
-  MSG pump = {};
-  while (PeekMessageW(&pump, nullptr, 0, 0, PM_REMOVE)) {
-    TranslateMessage(&pump);
-    DispatchMessageW(&pump);
-  }
   suppressDeactivateHide_ = false;
-  SetForegroundWindow(hwnd_);
-  if (listView_) {
-    SetFocus(listView_);
+
+  auto requestHide = [this]() {
+    if (owner_) {
+      PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
+    } else {
+      Hide();
+    }
+  };
+
+  auto panelIsForeground = [this]() -> bool {
+    const HWND fg = GetForegroundWindow();
+    return fg == hwnd_ || (fg != nullptr && IsChild(hwnd_, fg));
+  };
+
+  // Clicking outside dismisses the menu and activates another window. That WA_INACTIVE
+  // was suppressed above — if we steal focus back, later outside clicks never deactivate
+  // us again and the panel gets stuck open.
+  if (cmd == 0) {
+    if (!panelIsForeground()) {
+      requestHide();
+    } else if (listView_) {
+      SetFocus(listView_);
+    }
+    return;
   }
 
-  if (cmd == 0) {
-    return;
+  if (!panelIsForeground()) {
+    SetForegroundWindow(hwnd_);
+  }
+  if (listView_) {
+    SetFocus(listView_);
   }
 
   switch (cmd) {

@@ -32,6 +32,22 @@ const wchar_t* SortModeToString(SortMode mode) {
   return mode == SortMode::ByName ? L"name" : L"time";
 }
 
+bool ParseBool(const std::wstring& value, bool defaultValue) {
+  const std::wstring v = Trim(value);
+  if (v.empty()) {
+    return defaultValue;
+  }
+  if (_wcsicmp(v.c_str(), L"1") == 0 || _wcsicmp(v.c_str(), L"true") == 0 ||
+      _wcsicmp(v.c_str(), L"yes") == 0 || _wcsicmp(v.c_str(), L"on") == 0) {
+    return true;
+  }
+  if (_wcsicmp(v.c_str(), L"0") == 0 || _wcsicmp(v.c_str(), L"false") == 0 ||
+      _wcsicmp(v.c_str(), L"no") == 0 || _wcsicmp(v.c_str(), L"off") == 0) {
+    return false;
+  }
+  return defaultValue;
+}
+
 }  // namespace
 
 std::wstring GetExeDirectory() {
@@ -72,6 +88,11 @@ Settings Load() {
     const std::wstring sortKey = L"SortMode=";
     if (line.compare(0, sortKey.size(), sortKey) == 0) {
       settings.sortMode = ParseSortMode(line.substr(sortKey.size()));
+      continue;
+    }
+    const std::wstring hiddenKey = L"ShowHidden=";
+    if (line.compare(0, hiddenKey.size(), hiddenKey) == 0) {
+      settings.showHidden = ParseBool(line.substr(hiddenKey.size()), false);
     }
   }
   return settings;
@@ -85,6 +106,7 @@ bool Save(const Settings& settings) {
   }
   out << L"WatchPath=" << settings.watchPath << L"\n";
   out << L"SortMode=" << SortModeToString(settings.sortMode) << L"\n";
+  out << L"ShowHidden=" << (settings.showHidden ? L"true" : L"false") << L"\n";
   return static_cast<bool>(out);
 }
 
@@ -105,6 +127,16 @@ SortMode LoadSortMode() {
 bool SaveSortMode(SortMode mode) {
   Settings settings = Load();
   settings.sortMode = mode;
+  return Save(settings);
+}
+
+bool LoadShowHidden() {
+  return Load().showHidden;
+}
+
+bool SaveShowHidden(bool showHidden) {
+  Settings settings = Load();
+  settings.showHidden = showHidden;
   return Save(settings);
 }
 
