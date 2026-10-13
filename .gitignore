@@ -1,0 +1,3 @@
+# Build outputs — keep only the shipped executable tracked
+/out/*
+!/out/ToFolder.exe
