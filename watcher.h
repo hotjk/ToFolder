@@ -4,7 +4,6 @@
 
 #include <windows.h>
 
-#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -19,6 +18,8 @@ struct FileEntry {
 
 class DirectoryWatcher {
  public:
+  // Invoked on the watcher thread. `hasAdded` is true when entries were added or renamed
+  // in, or when the change buffer overflowed and the exact changes are unknown.
   using Callback = std::function<void(bool hasAdded)>;
 
   DirectoryWatcher();
@@ -27,14 +28,17 @@ class DirectoryWatcher {
   DirectoryWatcher(const DirectoryWatcher&) = delete;
   DirectoryWatcher& operator=(const DirectoryWatcher&) = delete;
 
+  // Must be set before Start(); the callback is read from the watcher thread.
   void SetCallback(Callback cb);
   bool Start(const std::wstring& path);
   void Stop();
-  std::wstring GetPath() const;
 
+  // UI thread only (uses an unsynchronized icon cache).
   static std::vector<FileEntry> Enumerate(const std::wstring& path,
                                           config::SortMode sortMode = config::SortMode::ByTime,
                                           bool showHidden = false);
+  // Small system icon index for a path, resolved from its name only (no disk access).
+  static int IconIndexFor(const std::wstring& name, bool isDirectory);
   static bool PathExists(const std::wstring& path);
 
  private:
@@ -45,6 +49,4 @@ class DirectoryWatcher {
   Callback callback_;
   HANDLE thread_ = nullptr;
   HANDLE stopEvent_ = nullptr;
-  HANDLE dirHandle_ = nullptr;
-  volatile LONG running_ = 0;
 };

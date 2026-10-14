@@ -1,241 +1,68 @@
 #include "panel.h"
 
 #include "app_messages.h"
+#include "clipboard.h"
 #include "dpi.h"
-#include "lang.h"
+#include "drop_source.h"
+#include "path_util.h"
 #include "resource.h"
+#include "slide_anim.h"
+#include "str_util.h"
 #include "theme.h"
+#include "ui_util.h"
+#include "win_compat.h"
 
-#include <commctrl.h>
 #include <dwmapi.h>
-#include <oleidl.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <uxtheme.h>
 #include <windowsx.h>
 
-#include <cmath>
+#include <algorithm>
 #include <new>
 #include <string>
-#include <unordered_set>
 #include <vector>
-
-#ifndef LVS_EX_NOHSCROLL
-#define LVS_EX_NOHSCROLL 0x10000000
-#endif
-#ifndef LVS_EX_INFOTIP
-#define LVS_EX_INFOTIP 0x00000400
-#endif
-
-#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
-#define DWMWA_WINDOW_CORNER_PREFERENCE 33
-#endif
-#ifndef DWMWCP_ROUND
-#define DWMWCP_DEFAULT 0
-#define DWMWCP_DONOTROUND 1
-#define DWMWCP_ROUND 2
-#define DWMWCP_ROUNDSMALL 3
-#endif
-#ifndef DWMWA_TRANSITIONS_FORCEDISABLED
-#define DWMWA_TRANSITIONS_FORCEDISABLED 3
-#endif
 
 namespace {
 
-constexpr int kPanelWidthSmall96 = 360;
-constexpr int kPanelWidthMedium96 = 440;
-constexpr int kPanelWidthLarge96 = 520;
+// Indexed by config::SizeIndex(): Small / Medium / Large.
+constexpr int kPanelWidth96[] = {360, 440, 520};
+constexpr int kRowHeight96[] = {28, 32, 38};
+constexpr int kChipHeight96[] = {20, 24, 28};
+
 constexpr int kPanelMargin96 = 12;
 constexpr int kPanelPadding96 = 12;
-constexpr int kRowHeightSmall96 = 28;
-constexpr int kRowHeightMedium96 = 32;
-constexpr int kRowHeightLarge96 = 38;
-constexpr int kChipHeightSmall96 = 20;
-constexpr int kChipHeightMedium96 = 24;
-constexpr int kChipHeightLarge96 = 28;
 constexpr int kChipPadX96 = 6;
 constexpr int kChipGapX96 = 10;
 constexpr int kChipGapY96 = 6;
+constexpr int kChipMinWidth96 = 28;
 constexpr int kFilterListGap96 = 6;  // space between chip block and list
 constexpr int kPinSize96 = 20;
 constexpr int kPinGap96 = 8;  // gap between chips and pin
 constexpr int kPanelMinHeight96 = 160;
-constexpr int kSlideMs = 160;
+constexpr int kOffscreenGap96 = 32;  // clear of the DWM shadow when parked off-screen
 constexpr UINT_PTR kPinTooltipId = 1;
 // Segoe MDL2 Assets glyphs
 constexpr wchar_t kPinGlyph[] = L"\xE718";
 constexpr wchar_t kPinSolidGlyph[] = L"\xE840";
+constexpr wchar_t kClassName[] = L"ToFolderPanelClass";
 
-bool CopyTextToClipboard(HWND hwnd, const std::wstring& text) {
-  if (!OpenClipboard(hwnd)) {
-    return false;
-  }
-  EmptyClipboard();
-  const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-  HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-  if (!mem) {
-    CloseClipboard();
-    return false;
-  }
-  void* locked = GlobalLock(mem);
-  if (!locked) {
-    GlobalFree(mem);
-    CloseClipboard();
-    return false;
-  }
-  memcpy(locked, text.c_str(), bytes);
-  GlobalUnlock(mem);
-  if (!SetClipboardData(CF_UNICODETEXT, mem)) {
-    GlobalFree(mem);
-    CloseClipboard();
-    return false;
-  }
-  CloseClipboard();
-  return true;
-}
+struct MenuEntry {
+  UINT id;  // 0 = separator
+  lang::Id text;
+};
 
-bool CopyFilesToClipboard(HWND hwnd, const std::wstring& path, bool cut) {
-  // DROPFILES + wide path list terminated by an extra NUL.
-  const size_t pathBytes = (path.size() + 1) * sizeof(wchar_t);
-  const size_t total = sizeof(DROPFILES) + pathBytes + sizeof(wchar_t);
-  HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, total);
-  if (!mem) {
-    return false;
-  }
-  auto* drop = static_cast<DROPFILES*>(GlobalLock(mem));
-  if (!drop) {
-    GlobalFree(mem);
-    return false;
-  }
-  drop->pFiles = sizeof(DROPFILES);
-  drop->fWide = TRUE;
-  wchar_t* dest = reinterpret_cast<wchar_t*>(reinterpret_cast<BYTE*>(drop) + sizeof(DROPFILES));
-  memcpy(dest, path.c_str(), pathBytes);
-  dest[path.size()] = L'\0';
-  dest[path.size() + 1] = L'\0';
-  GlobalUnlock(mem);
-
-  HGLOBAL effectMem = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
-  if (!effectMem) {
-    GlobalFree(mem);
-    return false;
-  }
-  auto* effect = static_cast<DWORD*>(GlobalLock(effectMem));
-  if (!effect) {
-    GlobalFree(effectMem);
-    GlobalFree(mem);
-    return false;
-  }
-  *effect = cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
-  GlobalUnlock(effectMem);
-
-  if (!OpenClipboard(hwnd)) {
-    GlobalFree(effectMem);
-    GlobalFree(mem);
-    return false;
-  }
-  EmptyClipboard();
-  if (!SetClipboardData(CF_HDROP, mem)) {
-    GlobalFree(effectMem);
-    GlobalFree(mem);
-    CloseClipboard();
-    return false;
-  }
-  const UINT fmtEffect = RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT);
-  if (!fmtEffect || !SetClipboardData(fmtEffect, effectMem)) {
-    GlobalFree(effectMem);
-    // CF_HDROP already on clipboard; still usable as copy.
-  }
-  CloseClipboard();
-  return true;
-}
-
-std::wstring ExtLower(const std::wstring& fileName) {
-  const size_t dot = fileName.find_last_of(L'.');
-  if (dot == std::wstring::npos || dot + 1 >= fileName.size()) {
-    return {};
-  }
-  std::wstring ext = fileName.substr(dot + 1);
-  for (wchar_t& ch : ext) {
-    ch = static_cast<wchar_t>(towlower(ch));
-  }
-  return ext;
-}
-
-std::unordered_set<std::wstring> SplitExtSet(const std::wstring& extensions) {
-  std::unordered_set<std::wstring> set;
-  size_t start = 0;
-  while (start <= extensions.size()) {
-    size_t comma = extensions.find(L',', start);
-    if (comma == std::wstring::npos) {
-      comma = extensions.size();
-    }
-    std::wstring part = extensions.substr(start, comma - start);
-    size_t b = 0;
-    while (b < part.size() && iswspace(part[b])) {
-      ++b;
-    }
-    size_t e = part.size();
-    while (e > b && iswspace(part[e - 1])) {
-      --e;
-    }
-    if (e > b) {
-      set.insert(part.substr(b, e - b));
-    }
-    if (comma >= extensions.size()) {
-      break;
-    }
-    start = comma + 1;
-  }
-  return set;
-}
-
-class SimpleDropSource final : public IDropSource {
- public:
-  SimpleDropSource() = default;
-
-  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
-    if (!ppv) {
-      return E_POINTER;
-    }
-    if (riid == IID_IUnknown || riid == IID_IDropSource) {
-      *ppv = static_cast<IDropSource*>(this);
-      AddRef();
-      return S_OK;
-    }
-    *ppv = nullptr;
-    return E_NOINTERFACE;
-  }
-
-  ULONG STDMETHODCALLTYPE AddRef() override {
-    return static_cast<ULONG>(InterlockedIncrement(&ref_));
-  }
-
-  ULONG STDMETHODCALLTYPE Release() override {
-    const LONG ref = InterlockedDecrement(&ref_);
-    if (ref == 0) {
-      delete this;
-    }
-    return static_cast<ULONG>(ref);
-  }
-
-  HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escapePressed, DWORD keyState) override {
-    if (escapePressed) {
-      return DRAGDROP_S_CANCEL;
-    }
-    if ((keyState & MK_LBUTTON) == 0) {
-      return DRAGDROP_S_DROP;
-    }
-    return S_OK;
-  }
-
-  HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD /*dwEffect*/) override {
-    return DRAGDROP_S_USEDEFAULTCURSORS;
-  }
-
- private:
-  LONG ref_ = 1;
+constexpr MenuEntry kItemMenu[] = {
+    {IDM_LIST_OPEN, lang::Id::ListOpen},
+    {IDM_LIST_OPEN_LOCATION, lang::Id::ListOpenLocation},
+    {0, lang::Id::Count},
+    {IDM_LIST_CUT, lang::Id::ListCut},
+    {IDM_LIST_COPY, lang::Id::ListCopy},
+    {IDM_LIST_COPY_NAME, lang::Id::ListCopyName},
+    {IDM_LIST_COPY_PATH, lang::Id::ListCopyPath},
+    {0, lang::Id::Count},
+    {IDM_LIST_DELETE, lang::Id::ListDelete},
 };
 
 void ApplyWin11Chrome(HWND hwnd) {
@@ -247,89 +74,13 @@ void ApplyWin11Chrome(HWND hwnd) {
   DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &noTransition, sizeof(noTransition));
 }
 
-constexpr DWORD kMoveFlags = SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER;
-
-// Windows toast–like: decelerate into place / accelerate away — no overshoot.
-float EaseOutCubic(float t) {
-  const float u = 1.0f - t;
-  return 1.0f - u * u * u;
+std::wstring DisplayName(const FileEntry& entry, bool isParentRow) {
+  return entry.isDirectory && !isParentRow ? entry.name + L"\\" : entry.name;
 }
 
-float EaseInCubic(float t) {
-  return t * t * t;
-}
-
-void RunSlide(HWND hwnd, int fromX, int toX, int y, float (*ease)(float)) {
-  int steps = kSlideMs * 60 / 1000;
-  if (steps < 16) {
-    steps = 16;
-  }
-
-  int lastX = fromX;
-  for (int i = 1; i <= steps; ++i) {
-    const float t = static_cast<float>(i) / static_cast<float>(steps);
-    const float e = ease(t);
-    const int x =
-        fromX + static_cast<int>(std::lround(static_cast<double>(toX - fromX) * e));
-    if (x != lastX) {
-      SetWindowPos(hwnd, nullptr, x, y, 0, 0, kMoveFlags);
-      lastX = x;
-      DwmFlush();
-    }
-  }
-  if (lastX != toX) {
-    SetWindowPos(hwnd, nullptr, toX, y, 0, 0, kMoveFlags);
-    DwmFlush();
-  }
-}
-
-void SetAlpha(HWND hwnd, BYTE alpha) {
-  SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
-}
-
-// Off-screen windows are not composed with content (only an empty DWM frame).
-// Paint at the final rect while fully transparent, jump off-screen, then fade in
-// and translate — size never changes.
-void SlideIn(HWND hwnd, int fromX, int toX, int y) {
-  const LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-  SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED);
-  SetWindowPos(
-      hwnd,
-      nullptr,
-      0,
-      0,
-      0,
-      0,
-      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-  // Alpha 0: on-screen paint without a visible flash (off-screen paint is skipped by DWM).
-  SetAlpha(hwnd, 0);
-
-  SetWindowPos(
-      hwnd,
-      nullptr,
-      toX,
-      y,
-      0,
-      0,
-      kMoveFlags | SWP_SHOWWINDOW);
-  RedrawWindow(
-      hwnd,
-      nullptr,
-      nullptr,
-      RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_ERASE);
-  DwmFlush();
-
-  // Content is in the redirection surface; jump off-screen while still invisible.
-  SetWindowPos(hwnd, nullptr, fromX, y, 0, 0, kMoveFlags);
-  SetAlpha(hwnd, 255);
-  DwmFlush();
-
-  RunSlide(hwnd, fromX, toX, y, EaseOutCubic);
-}
-
-void SlideOut(HWND hwnd, int fromX, int toX, int y) {
-  SetWindowPos(hwnd, nullptr, fromX, y, 0, 0, kMoveFlags | SWP_SHOWWINDOW);
-  RunSlide(hwnd, fromX, toX, y, EaseInCubic);
+void SelectOnly(HWND list, int index) {
+  ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+  ListView_SetItemState(list, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
 }
 
 }  // namespace
@@ -349,24 +100,13 @@ bool PanelWindow::Create(HWND owner) {
   wc.hInstance = GetModuleHandleW(nullptr);
   wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-  wc.lpszClassName = L"ToFolderPanelClass";
+  wc.lpszClassName = kClassName;
   RegisterClassExW(&wc);
 
-  const RECT wa = WorkAreaRect();
-  hwnd_ = CreateWindowExW(
-      WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-      L"ToFolderPanelClass",
-      L"ToFolder",
-      WS_POPUP | WS_CLIPCHILDREN,
-      wa.right,
-      wa.top,
-      PanelWidthPx(),
-      wa.bottom - wa.top,
-      owner,
-      nullptr,
-      GetModuleHandleW(nullptr),
-      this);
-
+  const RECT wa = ui_util::WorkAreaAtCursor();
+  hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, kClassName, L"ToFolder",
+                          WS_POPUP | WS_CLIPCHILDREN, wa.right, wa.top, PanelWidthPx(),
+                          wa.bottom - wa.top, owner, nullptr, GetModuleHandleW(nullptr), this);
   if (!hwnd_) {
     return false;
   }
@@ -392,10 +132,13 @@ void PanelWindow::Destroy() {
     hwnd_ = nullptr;
   }
   listView_ = nullptr;
-  if (listFont_) {
-    DeleteObject(listFont_);
-    listFont_ = nullptr;
+  for (HFONT* font : {&listFont_, &pinFont_}) {
+    if (*font) {
+      DeleteObject(*font);
+      *font = nullptr;
+    }
   }
+  fontDpi_ = 0;
   if (bgBrush_) {
     DeleteObject(bgBrush_);
     bgBrush_ = nullptr;
@@ -407,6 +150,67 @@ bool PanelWindow::IsVisible() const {
   return hwnd_ && IsWindowVisible(hwnd_);
 }
 
+// ---------------------------------------------------------------------------
+// Settings
+
+void PanelWindow::ApplySettings(const config::Settings& settings) {
+  const bool watchChanged = settings.watchPath != settings_.watchPath;
+  settings_ = settings;
+  config::PruneActiveFilters(settings_.filters, settings_.activeFilters);
+  if (watchChanged || !settings_.expandFolders) {
+    browsePath_ = settings_.watchPath;
+  }
+  RebuildFilterMatcher();
+  chipLayoutDirty_ = true;
+  if (created_) {
+    EnsureFont();
+  }
+  if (IsVisible()) {
+    Refresh();
+  }
+}
+
+void PanelWindow::RebuildFilterMatcher() {
+  filteringActive_ = settings_.showFilters && !settings_.activeFilters.empty();
+  matchAllFiles_ = false;
+  matchFolders_ = false;
+  allowedExt_.clear();
+  if (!filteringActive_) {
+    return;
+  }
+  for (const auto& filter : settings_.filters) {
+    if (!IsFilterActive(filter.name)) {
+      continue;
+    }
+    if (config::IsFilesFilter(filter)) {
+      matchAllFiles_ = true;
+    } else if (config::IsFoldersFilter(filter)) {
+      matchFolders_ = true;
+    } else {
+      for (auto& ext : str::SplitTrim(filter.extensions, L',')) {
+        allowedExt_.insert(std::move(ext));
+      }
+    }
+  }
+}
+
+bool PanelWindow::MatchesFilters(const FileEntry& entry) const {
+  if (entry.isDirectory) {
+    return matchFolders_;
+  }
+  if (matchAllFiles_) {
+    return true;
+  }
+  if (allowedExt_.empty()) {
+    return false;
+  }
+  const std::wstring ext = path_util::ExtensionLower(entry.name);
+  return !ext.empty() && allowedExt_.count(ext) != 0;
+}
+
+// ---------------------------------------------------------------------------
+// Metrics
+
 UINT PanelWindow::CurrentDpi() const {
   if (hwnd_) {
     return dpi::ForWindow(hwnd_);
@@ -416,14 +220,12 @@ UINT PanelWindow::CurrentDpi() const {
   return dpi::ForPoint(pt);
 }
 
+int PanelWindow::Px(int value96) const {
+  return dpi::Scale(value96, CurrentDpi());
+}
+
 int PanelWindow::PanelWidthPx() const {
-  int width96 = kPanelWidthSmall96;
-  if (panelSize_ == config::PanelSize::Medium) {
-    width96 = kPanelWidthMedium96;
-  } else if (panelSize_ == config::PanelSize::Large) {
-    width96 = kPanelWidthLarge96;
-  }
-  return dpi::Scale(width96, CurrentDpi());
+  return Px(kPanelWidth96[config::SizeIndex(settings_.panelSize)]);
 }
 
 int PanelWindow::RowHeightPx() const {
@@ -436,35 +238,11 @@ int PanelWindow::RowHeightPx() const {
       }
     }
   }
-  int row96 = kRowHeightSmall96;
-  if (fontSize_ == config::FontSize::Medium) {
-    row96 = kRowHeightMedium96;
-  } else if (fontSize_ == config::FontSize::Large) {
-    row96 = kRowHeightLarge96;
-  }
-  return dpi::Scale(row96, CurrentDpi());
-}
-
-int ChipHeightForFont(config::FontSize size, UINT dpi) {
-  int chip96 = kChipHeightSmall96;
-  if (size == config::FontSize::Medium) {
-    chip96 = kChipHeightMedium96;
-  } else if (size == config::FontSize::Large) {
-    chip96 = kChipHeightLarge96;
-  }
-  return dpi::Scale(chip96, dpi);
-}
-
-bool PanelWindow::HasFilterBar() const {
-  return showFilters_ && !filters_.empty();
+  return Px(kRowHeight96[config::SizeIndex(settings_.fontSize)]);
 }
 
 int PanelWindow::PinSizePx() const {
-  return dpi::Scale(kPinSize96, CurrentDpi());
-}
-
-int PanelWindow::PinReservePx() const {
-  return PinSizePx() + dpi::Scale(kPinGap96, CurrentDpi());
+  return Px(kPinSize96);
 }
 
 RECT PanelWindow::PinRect() const {
@@ -472,7 +250,7 @@ RECT PanelWindow::PinRect() const {
   if (hwnd_) {
     GetClientRect(hwnd_, &rc);
   }
-  const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
+  const int pad = Px(kPanelPadding96);
   const int size = PinSizePx();
   RECT pin = {};
   pin.right = rc.right - pad;
@@ -482,60 +260,52 @@ RECT PanelWindow::PinRect() const {
   return pin;
 }
 
-int PanelWindow::FilterBarHeightPx() const {
-  if (!HasFilterBar()) {
-    return 0;
-  }
-  int barH = 0;
-  ComputeFilterChipLayout(nullptr, &barH);
-  return barH;
-}
-
 int PanelWindow::TopChromeHeightPx() const {
-  const int pinRow = PinSizePx() + dpi::Scale(kFilterListGap96, CurrentDpi());
-  if (HasFilterBar()) {
-    const int barH = FilterBarHeightPx();
-    return barH > pinRow ? barH : pinRow;
+  const int pinRow = PinSizePx() + Px(kFilterListGap96);
+  if (!HasFilterBar()) {
+    return pinRow;
   }
-  return pinRow;
+  UpdateChipLayout();
+  return (std::max)(chipBarHeight_, pinRow);
 }
 
 int PanelWindow::PanelHeightPx(const RECT& workArea) const {
-  const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
-  const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
+  const int margin = Px(kPanelMargin96);
+  const int pad = Px(kPanelPadding96);
   const int maxH = (workArea.bottom - workArea.top) - margin * 2;
-  const int minH = dpi::Scale(kPanelMinHeight96, CurrentDpi());
+  const int minH = Px(kPanelMinHeight96);
   const int rows = items_.empty() ? 1 : static_cast<int>(items_.size());
-  int h = pad * 2 + TopChromeHeightPx() + RowHeightPx() * rows;
-  if (h < minH) {
-    h = minH;
-  }
-  if (h > maxH) {
-    h = maxH;
-  }
-  return h;
+  const int h = pad * 2 + TopChromeHeightPx() + RowHeightPx() * rows;
+  return (std::min)((std::max)(h, minH), maxH);
 }
 
-RECT PanelWindow::WorkAreaRect() const {
-  POINT pt = {};
-  GetCursorPos(&pt);
-  HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-  MONITORINFO mi = {};
-  mi.cbSize = sizeof(mi);
-  if (GetMonitorInfoW(mon, &mi)) {
-    return mi.rcWork;
-  }
-  RECT wa = {};
-  SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-  return wa;
-}
+// ---------------------------------------------------------------------------
+// Child windows, fonts, theme
 
 void PanelWindow::EnsureFont() {
-  if (listFont_) {
-    DeleteObject(listFont_);
-    listFont_ = nullptr;
+  const UINT dpi = CurrentDpi();
+  if (listFont_ && fontDpi_ == dpi && fontSizeBuilt_ == settings_.fontSize) {
+    return;
   }
-  listFont_ = dpi::CreateUiFont(CurrentDpi(), fontSize_);
+  for (HFONT* font : {&listFont_, &pinFont_}) {
+    if (*font) {
+      DeleteObject(*font);
+      *font = nullptr;
+    }
+  }
+  listFont_ = dpi::CreateUiFont(dpi, settings_.fontSize);
+
+  LOGFONTW lf = {};
+  lf.lfHeight = -(dpi::Scale(kPinSize96, dpi) - dpi::Scale(2, dpi));
+  lf.lfWeight = FW_NORMAL;
+  lf.lfCharSet = DEFAULT_CHARSET;
+  lf.lfQuality = CLEARTYPE_QUALITY;
+  wcscpy_s(lf.lfFaceName, L"Segoe MDL2 Assets");
+  pinFont_ = CreateFontIndirectW(&lf);
+
+  fontDpi_ = dpi;
+  fontSizeBuilt_ = settings_.fontSize;
+  chipLayoutDirty_ = true;
   if (listView_ && listFont_) {
     SendMessageW(listView_, WM_SETFONT, reinterpret_cast<WPARAM>(listFont_), TRUE);
   }
@@ -548,19 +318,11 @@ void PanelWindow::EnsureList() {
   InitCommonControlsEx(&icc);
 
   listView_ = CreateWindowExW(
-      0,
-      WC_LISTVIEWW,
-      L"",
+      0, WC_LISTVIEWW, L"",
       WS_CHILD | WS_VISIBLE | WS_VSCROLL | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS |
           LVS_NOCOLUMNHEADER | LVS_OWNERDATA,
-      0,
-      0,
-      0,
-      0,
-      hwnd_,
-      reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_FILE_LIST)),
-      GetModuleHandleW(nullptr),
-      nullptr);
+      0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_FILE_LIST)),
+      GetModuleHandleW(nullptr), nullptr);
 
   // Double-buffer + no hscroll; INFOTIP works with OWNERDATA (LABELTIP does not).
   ListView_SetExtendedListViewStyle(listView_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER |
@@ -658,120 +420,11 @@ void PanelWindow::EnsureListIcons() {
 
   // Return value is the shell system image list — do not ImageList_Destroy it.
   SHFILEINFOW sfi = {};
-  HIMAGELIST himl = reinterpret_cast<HIMAGELIST>(SHGetFileInfoW(
-      L"C:\\",
-      0,
-      &sfi,
-      sizeof(sfi),
-      SHGFI_SYSICONINDEX | SHGFI_SMALLICON));
+  HIMAGELIST himl = reinterpret_cast<HIMAGELIST>(
+      SHGetFileInfoW(L"C:\\", 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_SMALLICON));
   if (himl) {
     ListView_SetImageList(listView_, himl, LVSIL_SMALL);
   }
-}
-
-void PanelWindow::UpdateColumnWidth() {
-  if (!listView_) {
-    return;
-  }
-  RECT rc = {};
-  GetClientRect(listView_, &rc);
-  int width = rc.right - rc.left;
-  if (width <= 0) {
-    return;
-  }
-
-  // Subtract vertical scrollbar width so the column fits and no HSCROLL appears
-  SCROLLBARINFO sbi = {};
-  sbi.cbSize = sizeof(sbi);
-  if (GetScrollBarInfo(listView_, OBJID_VSCROLL, &sbi) &&
-      (sbi.rgstate[0] & STATE_SYSTEM_INVISIBLE) == 0) {
-    width -= (sbi.rcScrollBar.right - sbi.rcScrollBar.left);
-  }
-
-  if (width < 1) {
-    width = 1;
-  }
-  ListView_SetColumnWidth(listView_, 0, width);
-  ShowScrollBar(listView_, SB_HORZ, FALSE);
-}
-
-void PanelWindow::ComputeFilterChipLayout(std::vector<RECT>* outRects, int* outBarH) const {
-  if (outRects) {
-    outRects->clear();
-  }
-  if (outBarH) {
-    *outBarH = 0;
-  }
-  if (!HasFilterBar() || !hwnd_ || filters_.empty()) {
-    return;
-  }
-
-  RECT rc = {};
-  GetClientRect(hwnd_, &rc);
-  const UINT dpi = CurrentDpi();
-  const int pad = dpi::Scale(kPanelPadding96, dpi);
-  const int chipH = ChipHeightForFont(fontSize_, dpi);
-  const int chipPadX = dpi::Scale(kChipPadX96, dpi);
-  const int gapX = dpi::Scale(kChipGapX96, dpi);
-  const int gapY = dpi::Scale(kChipGapY96, dpi);
-  const int listGap = dpi::Scale(kFilterListGap96, dpi);
-  const int maxRight = rc.right - pad - PinReservePx();
-  const int minChipW = dpi::Scale(28, dpi);
-
-  HDC hdc = GetDC(hwnd_);
-  HFONT oldFont = nullptr;
-  if (listFont_) {
-    oldFont = static_cast<HFONT>(SelectObject(hdc, listFont_));
-  }
-
-  int x = pad;
-  int y = pad;
-  int lastBottom = pad + chipH;
-
-  for (const auto& filter : filters_) {
-    SIZE sz = {};
-    GetTextExtentPoint32W(hdc, filter.name.c_str(), static_cast<int>(filter.name.size()), &sz);
-    int chipW = sz.cx + chipPadX * 2;
-    if (chipW < minChipW) {
-      chipW = minChipW;
-    }
-    // Wrap if this chip would overflow (keep at least one chip per row).
-    if (x > pad && x + chipW > maxRight) {
-      x = pad;
-      y += chipH + gapY;
-    }
-    // Cap width on very narrow panels so a single long name still fits.
-    if (chipW > maxRight - pad) {
-      chipW = maxRight - pad;
-      if (chipW < 1) {
-        chipW = 1;
-      }
-    }
-    RECT chip = {x, y, x + chipW, y + chipH};
-    if (outRects) {
-      outRects->push_back(chip);
-    }
-    lastBottom = chip.bottom;
-    x += chipW + gapX;
-  }
-
-  if (oldFont) {
-    SelectObject(hdc, oldFont);
-  }
-  ReleaseDC(hwnd_, hdc);
-
-  if (outBarH) {
-    // Height of chip block below the top padding, plus gap before the list.
-    *outBarH = (lastBottom - pad) + listGap;
-  }
-}
-
-void PanelWindow::LayoutFilterChips() {
-  filterChipRects_.clear();
-  if (!HasFilterBar()) {
-    return;
-  }
-  ComputeFilterChipLayout(&filterChipRects_, nullptr);
 }
 
 void PanelWindow::EnsureTooltip() {
@@ -807,8 +460,29 @@ void PanelWindow::UpdatePinTooltip() {
   ti.hwnd = hwnd_;
   ti.uId = kPinTooltipId;
   ti.rect = PinRect();
-  ti.lpszText = const_cast<wchar_t*>(pinned_ ? lang::T(lang::Id::TipUnpin) : lang::T(lang::Id::TipPin));
+  ti.lpszText = const_cast<wchar_t*>(lang::T(pinned_ ? lang::Id::TipUnpin : lang::Id::TipPin));
   SendMessageW(tooltip_, TTM_SETTOOLINFOW, 0, reinterpret_cast<LPARAM>(&ti));
+}
+
+// ---------------------------------------------------------------------------
+// Layout
+
+void PanelWindow::UpdateColumnWidth() {
+  if (!listView_) {
+    return;
+  }
+  // The client rect already excludes a visible vertical scrollbar.
+  RECT rc = {};
+  GetClientRect(listView_, &rc);
+  const int width = rc.right - rc.left;
+  if (width <= 0) {
+    return;
+  }
+
+  // The Explorer theme draws a column divider on the column's last pixel; one extra pixel
+  // pushes it just past the client edge. LVS_EX_NOHSCROLL keeps that from adding a scrollbar.
+  ListView_SetColumnWidth(listView_, 0, width + 1);
+  ShowScrollBar(listView_, SB_HORZ, FALSE);
 }
 
 void PanelWindow::Layout() {
@@ -817,86 +491,106 @@ void PanelWindow::Layout() {
   }
   RECT rc = {};
   GetClientRect(hwnd_, &rc);
-  const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
+  const int pad = Px(kPanelPadding96);
   const int chromeH = TopChromeHeightPx();
-  LayoutFilterChips();
-  int x = pad;
-  int y = pad + chromeH;
-  int w = (rc.right - rc.left) - pad * 2;
-  int h = (rc.bottom - rc.top) - pad * 2 - chromeH;
-  if (w < 1) {
-    w = 1;
-  }
-  if (h < 1) {
-    h = 1;
-  }
-  SetWindowPos(listView_, nullptr, x, y, w, h, SWP_NOZORDER);
+  const int w = (std::max)(static_cast<int>(rc.right - rc.left) - pad * 2, 1);
+  const int h = (std::max)(static_cast<int>(rc.bottom - rc.top) - pad * 2 - chromeH, 1);
+  SetWindowPos(listView_, nullptr, pad, pad + chromeH, w, h, SWP_NOZORDER);
   UpdateColumnWidth();
   UpdatePinTooltip();
   RECT chromeRc = {0, 0, rc.right, pad + chromeH};
   InvalidateRect(hwnd_, &chromeRc, TRUE);
 }
 
-void PanelWindow::SetWatchPath(const std::wstring& path) {
-  watchPath_ = path;
-  browsePath_ = path;
+void PanelWindow::ApplyVisibleSize(bool allowShrink) {
+  if (!IsVisible()) {
+    return;
+  }
+
+  const RECT wa = ui_util::WorkAreaAtCursor();
+  const int margin = Px(kPanelMargin96);
+  const int width = PanelWidthPx();
+  int height = PanelHeightPx(wa);
+  if (!allowShrink && retainedHeightPx_ > height) {
+    height = retainedHeightPx_;
+  }
+  retainedHeightPx_ = height;
+
+  const int x = wa.right - width - margin;
+  const int y = wa.bottom - margin - height;
+  SetWindowPos(hwnd_, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_NOCOPYBITS);
+  Layout();
+  EnsureSelection();
 }
 
-void PanelWindow::SetSortMode(config::SortMode mode) {
-  sortMode_ = mode;
+// ---------------------------------------------------------------------------
+// Filter chips and pin
+
+bool PanelWindow::HasFilterBar() const {
+  return settings_.showFilters && !settings_.filters.empty();
 }
 
-void PanelWindow::SetShowHidden(bool showHidden) {
-  showHidden_ = showHidden;
-}
+void PanelWindow::UpdateChipLayout() const {
+  RECT rc = {};
+  if (hwnd_) {
+    GetClientRect(hwnd_, &rc);
+  }
+  const UINT dpi = CurrentDpi();
+  if (!chipLayoutDirty_ && chipLayoutWidth_ == rc.right && chipLayoutDpi_ == dpi) {
+    return;
+  }
+  chipLayoutDirty_ = false;
+  chipLayoutWidth_ = rc.right;
+  chipLayoutDpi_ = dpi;
+  chipRects_.clear();
+  chipBarHeight_ = 0;
+  if (!HasFilterBar() || !hwnd_) {
+    return;
+  }
 
-void PanelWindow::SetExpandFolders(bool expandFolders) {
-  expandFolders_ = expandFolders;
-  if (!expandFolders_ && browsePath_ != watchPath_) {
-    browsePath_ = watchPath_;
-    if (IsVisible()) {
-      Refresh();
+  const int pad = dpi::Scale(kPanelPadding96, dpi);
+  const int chipH = dpi::Scale(kChipHeight96[config::SizeIndex(settings_.fontSize)], dpi);
+  const int chipPadX = dpi::Scale(kChipPadX96, dpi);
+  const int gapX = dpi::Scale(kChipGapX96, dpi);
+  const int gapY = dpi::Scale(kChipGapY96, dpi);
+  const int pinReserve = dpi::Scale(kPinSize96, dpi) + dpi::Scale(kPinGap96, dpi);
+  const int maxRight = rc.right - pad - pinReserve;
+  const int minChipW = dpi::Scale(kChipMinWidth96, dpi);
+
+  HDC hdc = GetDC(hwnd_);
+  HGDIOBJ oldFont = listFont_ ? SelectObject(hdc, listFont_) : nullptr;
+
+  int x = pad;
+  int y = pad;
+  int lastBottom = pad + chipH;
+  for (const auto& filter : settings_.filters) {
+    SIZE sz = {};
+    GetTextExtentPoint32W(hdc, filter.name.c_str(), static_cast<int>(filter.name.size()), &sz);
+    int chipW = (std::max)(static_cast<int>(sz.cx) + chipPadX * 2, minChipW);
+    // Wrap if this chip would overflow (keep at least one chip per row).
+    if (x > pad && x + chipW > maxRight) {
+      x = pad;
+      y += chipH + gapY;
     }
+    // Cap width on very narrow panels so a single long name still fits.
+    chipW = (std::max)((std::min)(chipW, maxRight - pad), 1);
+    const RECT chip = {x, y, x + chipW, y + chipH};
+    chipRects_.push_back(chip);
+    lastBottom = chip.bottom;
+    x += chipW + gapX;
   }
-}
 
-void PanelWindow::SetShowFilters(bool showFilters) {
-  showFilters_ = showFilters;
-}
-
-void PanelWindow::SetFontSize(config::FontSize size) {
-  if (fontSize_ == size) {
-    return;
+  if (oldFont) {
+    SelectObject(hdc, oldFont);
   }
-  fontSize_ = size;
-  EnsureFont();
-  if (IsVisible()) {
-    Refresh();
-  }
-}
+  ReleaseDC(hwnd_, hdc);
 
-void PanelWindow::SetPanelSize(config::PanelSize size) {
-  if (panelSize_ == size) {
-    return;
-  }
-  panelSize_ = size;
-  if (IsVisible()) {
-    Refresh();
-  }
-}
-
-void PanelWindow::SetFilters(const std::vector<config::FilterItem>& filters) {
-  filters_ = filters;
-  config::PruneActiveFilters(filters_, activeFilters_);
-}
-
-void PanelWindow::SetActiveFilters(const std::vector<std::wstring>& activeFilters) {
-  activeFilters_ = activeFilters;
-  config::PruneActiveFilters(filters_, activeFilters_);
+  // Height of chip block below the top padding, plus gap before the list.
+  chipBarHeight_ = (lastBottom - pad) + dpi::Scale(kFilterListGap96, dpi);
 }
 
 bool PanelWindow::IsFilterActive(const std::wstring& name) const {
-  for (const auto& active : activeFilters_) {
+  for (const auto& active : settings_.activeFilters) {
     if (_wcsicmp(active.c_str(), name.c_str()) == 0) {
       return true;
     }
@@ -904,32 +598,27 @@ bool PanelWindow::IsFilterActive(const std::wstring& name) const {
   return false;
 }
 
-void PanelWindow::NotifyFiltersChanged() {
-  if (owner_) {
-    PostMessageW(owner_, WM_FILTERS_CHANGED, 0, 0);
-  }
-}
-
 void PanelWindow::ToggleFilterChip(int index) {
-  if (index < 0 || index >= static_cast<int>(filters_.size())) {
+  if (index < 0 || index >= static_cast<int>(settings_.filters.size())) {
     return;
   }
-  const std::wstring& name = filters_[index].name;
-  bool found = false;
-  for (auto it = activeFilters_.begin(); it != activeFilters_.end(); ++it) {
-    if (_wcsicmp(it->c_str(), name.c_str()) == 0) {
-      activeFilters_.erase(it);
-      found = true;
-      break;
-    }
+  const std::wstring& name = settings_.filters[index].name;
+  auto& active = settings_.activeFilters;
+  const auto it = std::find_if(active.begin(), active.end(), [&name](const std::wstring& a) {
+    return _wcsicmp(a.c_str(), name.c_str()) == 0;
+  });
+  if (it != active.end()) {
+    active.erase(it);
+  } else {
+    active.push_back(name);
   }
-  if (!found) {
-    activeFilters_.push_back(name);
-  }
+  RebuildFilterMatcher();
   PopulateList();
   ApplyVisibleSize(false);
   InvalidateRect(hwnd_, nullptr, TRUE);
-  NotifyFiltersChanged();
+  if (owner_) {
+    PostMessageW(owner_, WM_FILTERS_CHANGED, 0, 0);
+  }
 }
 
 void PanelWindow::TogglePin() {
@@ -945,8 +634,12 @@ bool PanelWindow::HitTestPin(POINT clientPt) const {
 }
 
 int PanelWindow::HitTestFilterChip(POINT clientPt) const {
-  for (size_t i = 0; i < filterChipRects_.size(); ++i) {
-    if (PtInRect(&filterChipRects_[i], clientPt)) {
+  if (!HasFilterBar()) {
+    return -1;
+  }
+  UpdateChipLayout();
+  for (size_t i = 0; i < chipRects_.size(); ++i) {
+    if (PtInRect(&chipRects_[i], clientPt)) {
       return static_cast<int>(i);
     }
   }
@@ -957,173 +650,111 @@ void PanelWindow::PaintFilterBar(HDC hdc) {
   if (!HasFilterBar()) {
     return;
   }
-  LayoutFilterChips();
+  UpdateChipLayout();
   const bool dark = !appsLight_;
   const COLORREF textIdle = dark ? RGB(160, 160, 160) : RGB(110, 110, 110);
   const COLORREF textActive = dark ? RGB(240, 240, 240) : RGB(20, 20, 20);
-  const COLORREF accent = GetSysColor(COLOR_HOTLIGHT);
-  const int underline = dpi::Scale(2, CurrentDpi());
+  const int underline = Px(2);
+  const int inset = Px(2);
 
-  HFONT oldFont = nullptr;
-  if (listFont_) {
-    oldFont = static_cast<HFONT>(SelectObject(hdc, listFont_));
-  }
+  HGDIOBJ oldFont = listFont_ ? SelectObject(hdc, listFont_) : nullptr;
   SetBkMode(hdc, TRANSPARENT);
+  HPEN accentPen = CreatePen(PS_SOLID, underline, GetSysColor(COLOR_HOTLIGHT));
 
-  for (size_t i = 0; i < filterChipRects_.size() && i < filters_.size(); ++i) {
-    const RECT& r = filterChipRects_[i];
-    const bool on = IsFilterActive(filters_[i].name);
+  for (size_t i = 0; i < chipRects_.size() && i < settings_.filters.size(); ++i) {
+    RECT r = chipRects_[i];
+    const bool on = IsFilterActive(settings_.filters[i].name);
     SetTextColor(hdc, on ? textActive : textIdle);
-    DrawTextW(hdc, filters_[i].name.c_str(), -1, const_cast<RECT*>(&r),
+    DrawTextW(hdc, settings_.filters[i].name.c_str(), -1, &r,
               DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
 
-    if (on) {
-      HPEN pen = CreatePen(PS_SOLID, underline, accent);
-      HGDIOBJ oldPen = SelectObject(hdc, pen);
+    if (on && accentPen) {
+      HGDIOBJ oldPen = SelectObject(hdc, accentPen);
       const int y = r.bottom - underline;
-      const int inset = dpi::Scale(2, CurrentDpi());
       MoveToEx(hdc, r.left + inset, y, nullptr);
       LineTo(hdc, r.right - inset, y);
       SelectObject(hdc, oldPen);
-      DeleteObject(pen);
     }
   }
 
+  if (accentPen) {
+    DeleteObject(accentPen);
+  }
   if (oldFont) {
     SelectObject(hdc, oldFont);
   }
 }
 
 void PanelWindow::PaintPin(HDC hdc) {
-  const RECT pin = PinRect();
+  RECT pin = PinRect();
   const bool dark = !appsLight_;
   const COLORREF color =
       pinned_ ? GetSysColor(COLOR_HOTLIGHT) : (dark ? RGB(200, 200, 200) : RGB(80, 80, 80));
 
-  LOGFONTW lf = {};
-  lf.lfHeight = -(PinSizePx() - dpi::Scale(2, CurrentDpi()));
-  lf.lfWeight = FW_NORMAL;
-  lf.lfCharSet = DEFAULT_CHARSET;
-  lf.lfQuality = CLEARTYPE_QUALITY;
-  wcscpy_s(lf.lfFaceName, L"Segoe MDL2 Assets");
-  HFONT iconFont = CreateFontIndirectW(&lf);
-  HFONT oldFont = nullptr;
   bool drewGlyph = false;
-  if (iconFont) {
-    oldFont = static_cast<HFONT>(SelectObject(hdc, iconFont));
+  if (pinFont_) {
+    HGDIOBJ oldFont = SelectObject(hdc, pinFont_);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, color);
     const wchar_t* glyph = pinned_ ? kPinSolidGlyph : kPinGlyph;
-    const int result = DrawTextW(hdc, glyph, -1, const_cast<RECT*>(&pin),
-                                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-    drewGlyph = result > 0;
+    drewGlyph =
+        DrawTextW(hdc, glyph, -1, &pin, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX) > 0;
     SelectObject(hdc, oldFont);
-    DeleteObject(iconFont);
   }
-
-  if (!drewGlyph) {
-    // Fallback geometric pin if MDL2 font is unavailable.
-    const int cx = (pin.left + pin.right) / 2;
-    const int cy = (pin.top + pin.bottom) / 2;
-    const int r = dpi::Scale(4, CurrentDpi());
-    HPEN pen = CreatePen(PS_SOLID, dpi::Scale(2, CurrentDpi()), color);
-    HBRUSH brush = pinned_ ? CreateSolidBrush(color) : static_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
-    HGDIOBJ oldBrush = SelectObject(hdc, brush);
-    Ellipse(hdc, cx - r, cy - r - dpi::Scale(2, CurrentDpi()), cx + r,
-            cy + r - dpi::Scale(2, CurrentDpi()));
-    MoveToEx(hdc, cx, cy + r - dpi::Scale(2, CurrentDpi()), nullptr);
-    LineTo(hdc, cx, pin.bottom - dpi::Scale(2, CurrentDpi()));
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBrush);
-    DeleteObject(pen);
-    if (pinned_) {
-      DeleteObject(brush);
-    }
-  }
-}
-
-bool PanelWindow::IsAtWatchRoot() const {
-  if (watchPath_.empty() || browsePath_.empty()) {
-    return true;
-  }
-  return _wcsicmp(browsePath_.c_str(), watchPath_.c_str()) == 0;
-}
-
-std::wstring PanelWindow::ParentPath(const std::wstring& path) const {
-  if (path.empty()) {
-    return path;
-  }
-  std::wstring p = path;
-  while (!p.empty() && (p.back() == L'\\' || p.back() == L'/')) {
-    p.pop_back();
-  }
-  const size_t pos = p.find_last_of(L"\\/");
-  if (pos == std::wstring::npos) {
-    return p;
-  }
-  if (pos == 2 && p.size() >= 3 && p[1] == L':') {
-    // "C:\foo" -> "C:\"
-    return p.substr(0, 3);
-  }
-  return p.substr(0, pos);
-}
-
-bool PanelWindow::IsPathUnderWatch(const std::wstring& path) const {
-  if (watchPath_.empty() || path.empty()) {
-    return false;
-  }
-  if (_wcsicmp(path.c_str(), watchPath_.c_str()) == 0) {
-    return true;
-  }
-  std::wstring root = watchPath_;
-  while (!root.empty() && (root.back() == L'\\' || root.back() == L'/')) {
-    root.pop_back();
-  }
-  if (path.size() <= root.size()) {
-    return false;
-  }
-  if (_wcsnicmp(path.c_str(), root.c_str(), root.size()) != 0) {
-    return false;
-  }
-  const wchar_t sep = path[root.size()];
-  return sep == L'\\' || sep == L'/';
-}
-
-bool PanelWindow::IsParentRow(int index) const {
-  return index >= 0 && index < static_cast<int>(items_.size()) && items_[index].name == L"..";
-}
-
-void PanelWindow::ApplyVisibleSize(bool allowShrink) {
-  if (!hwnd_ || !IsWindowVisible(hwnd_)) {
+  if (drewGlyph) {
     return;
   }
 
-  const RECT wa = WorkAreaRect();
-  const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
-  const int width = PanelWidthPx();
-  int height = PanelHeightPx(wa);
-  if (!allowShrink && retainedHeightPx_ > height) {
-    height = retainedHeightPx_;
+  // Fallback geometric pin if MDL2 font is unavailable.
+  const int cx = (pin.left + pin.right) / 2;
+  const int cy = (pin.top + pin.bottom) / 2;
+  const int r = Px(4);
+  const int lift = Px(2);
+  HPEN pen = CreatePen(PS_SOLID, Px(2), color);
+  HBRUSH brush =
+      pinned_ ? CreateSolidBrush(color) : static_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
+  HGDIOBJ oldPen = SelectObject(hdc, pen);
+  HGDIOBJ oldBrush = SelectObject(hdc, brush);
+  Ellipse(hdc, cx - r, cy - r - lift, cx + r, cy + r - lift);
+  MoveToEx(hdc, cx, cy + r - lift, nullptr);
+  LineTo(hdc, cx, pin.bottom - lift);
+  SelectObject(hdc, oldPen);
+  SelectObject(hdc, oldBrush);
+  DeleteObject(pen);
+  if (pinned_) {
+    DeleteObject(brush);
   }
-  retainedHeightPx_ = height;
+}
 
-  const int x = wa.right - width - margin;
-  const int y = wa.bottom - margin - height;
-  SetWindowPos(
-      hwnd_,
-      HWND_TOPMOST,
-      x,
-      y,
-      width,
-      height,
-      SWP_NOACTIVATE | SWP_NOCOPYBITS);
-  Layout();
-  EnsureSelection();
+// ---------------------------------------------------------------------------
+// Listing and navigation
+
+bool PanelWindow::IsAtWatchRoot() const {
+  if (settings_.watchPath.empty() || browsePath_.empty()) {
+    return true;
+  }
+  return path_util::EqualsNoCase(browsePath_, settings_.watchPath);
+}
+
+bool PanelWindow::IsParentRow(int index) const {
+  const FileEntry* entry = ItemAt(index);
+  return entry && entry->name == L"..";
+}
+
+const FileEntry* PanelWindow::ItemAt(int index) const {
+  if (index < 0 || index >= static_cast<int>(items_.size())) {
+    return nullptr;
+  }
+  return &items_[index];
+}
+
+const FileEntry* PanelWindow::ActionableItemAt(int index) const {
+  return IsParentRow(index) ? nullptr : ItemAt(index);
 }
 
 void PanelWindow::NavigateTo(const std::wstring& path) {
-  if (path.empty() || !DirectoryWatcher::PathExists(path) || !IsPathUnderWatch(path)) {
+  if (!DirectoryWatcher::PathExists(path) ||
+      !path_util::IsSameOrUnder(path, settings_.watchPath)) {
     return;
   }
   browsePath_ = path;
@@ -1133,15 +764,12 @@ void PanelWindow::NavigateTo(const std::wstring& path) {
 }
 
 void PanelWindow::NavigateUp() {
-  if (!expandFolders_ || IsAtWatchRoot()) {
+  if (!settings_.expandFolders || IsAtWatchRoot()) {
     return;
   }
-  const std::wstring parent = ParentPath(browsePath_);
-  if (!IsPathUnderWatch(parent)) {
-    browsePath_ = watchPath_;
-  } else {
-    browsePath_ = parent;
-  }
+  const std::wstring parent = path_util::Parent(browsePath_);
+  browsePath_ =
+      path_util::IsSameOrUnder(parent, settings_.watchPath) ? parent : settings_.watchPath;
   PopulateList();
   ApplyVisibleSize(false);
 }
@@ -1151,80 +779,46 @@ void PanelWindow::PopulateList() {
     return;
   }
 
-  if (browsePath_.empty()) {
-    browsePath_ = watchPath_;
-  }
-  if (!browsePath_.empty() && !DirectoryWatcher::PathExists(browsePath_)) {
-    browsePath_ = watchPath_;
+  if (browsePath_.empty() || !DirectoryWatcher::PathExists(browsePath_)) {
+    browsePath_ = settings_.watchPath;
   }
 
   const int top = ListView_GetTopIndex(listView_);
-  items_ = DirectoryWatcher::Enumerate(browsePath_, sortMode_, showHidden_);
+  items_ = DirectoryWatcher::Enumerate(browsePath_, settings_.sortMode, settings_.showHidden);
 
-  if (showFilters_ && !activeFilters_.empty()) {
-    bool matchAllFiles = false;
-    bool matchFolders = false;
-    std::unordered_set<std::wstring> allowedExt;
-    for (const auto& filter : filters_) {
-      if (!IsFilterActive(filter.name)) {
-        continue;
-      }
-      if (config::IsFilesFilter(filter)) {
-        matchAllFiles = true;
-      } else if (config::IsFoldersFilter(filter)) {
-        matchFolders = true;
-      } else {
-        auto part = SplitExtSet(filter.extensions);
-        allowedExt.insert(part.begin(), part.end());
-      }
-    }
-    std::vector<FileEntry> filtered;
-    filtered.reserve(items_.size());
-    for (auto& entry : items_) {
-      bool keep = false;
-      if (entry.isDirectory) {
-        keep = matchFolders;
-      } else if (matchAllFiles) {
-        keep = true;
-      } else if (!allowedExt.empty()) {
-        const std::wstring ext = ExtLower(entry.name);
-        keep = !ext.empty() && allowedExt.find(ext) != allowedExt.end();
-      }
-      if (keep) {
-        filtered.push_back(std::move(entry));
-      }
-    }
-    items_ = std::move(filtered);
+  if (filteringActive_) {
+    items_.erase(std::remove_if(items_.begin(), items_.end(),
+                                [this](const FileEntry& e) { return !MatchesFilters(e); }),
+                 items_.end());
   }
 
-  if (expandFolders_ && !IsAtWatchRoot()) {
+  if (settings_.expandFolders && !IsAtWatchRoot()) {
     FileEntry up;
     up.name = L"..";
-    up.fullPath = ParentPath(browsePath_);
+    up.fullPath = path_util::Parent(browsePath_);
     up.isDirectory = true;
-    up.iconIndex = I_IMAGENONE;
-    SHFILEINFOW sfi = {};
-    if (SHGetFileInfoW(
-            up.fullPath.c_str(),
-            FILE_ATTRIBUTE_DIRECTORY,
-            &sfi,
-            sizeof(sfi),
-            SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES)) {
-      up.iconIndex = sfi.iIcon;
-    }
+    up.iconIndex = DirectoryWatcher::IconIndexFor(up.fullPath, true);
     items_.insert(items_.begin(), std::move(up));
   }
 
-  // Virtual list: text comes from LVN_GETDISPINFO (smooth with many files)
-  int count = static_cast<int>(items_.size());
-  if (count == 0) {
-    count = 1;  // placeholder row
+  if (items_.empty()) {
+    // Resolved here rather than in LVN_GETDISPINFO, which runs on every repaint.
+    if (settings_.watchPath.empty()) {
+      emptyTextId_ = lang::Id::ChooseFolderHint;
+    } else if (!DirectoryWatcher::PathExists(settings_.watchPath)) {
+      emptyTextId_ = lang::Id::PathInvalid;
+    } else {
+      emptyTextId_ = lang::Id::EmptyFolder;
+    }
   }
+
+  // Virtual list: text comes from LVN_GETDISPINFO (smooth with many files)
+  const int count = items_.empty() ? 1 : static_cast<int>(items_.size());  // 1 = placeholder
   ListView_SetItemCountEx(listView_, count, LVSICF_NOSCROLL | LVSICF_NOINVALIDATEALL);
 
   UpdateColumnWidth();
 
-  if (top > 0 && !items_.empty() && top < static_cast<int>(items_.size())) {
+  if (top > 0 && top < static_cast<int>(items_.size())) {
     ListView_EnsureVisible(listView_, top, FALSE);
   }
   InvalidateRect(listView_, nullptr, FALSE);
@@ -1233,56 +827,43 @@ void PanelWindow::PopulateList() {
 void PanelWindow::Refresh() {
   PopulateList();
   // Watcher/config refresh may grow for new files, but keep size when list shrinks.
-  // ApplyVisibleSize -> Layout (filter chips measured once there).
   ApplyVisibleSize(false);
 }
+
+// ---------------------------------------------------------------------------
+// Show / hide
 
 void PanelWindow::Show() {
   if (!hwnd_) {
     return;
   }
 
-  EnsureFont();
   ApplyWin11Chrome(hwnd_);
   SetWindowRgn(hwnd_, nullptr, FALSE);
   retainedHeightPx_ = 0;
 
-  const RECT wa = WorkAreaRect();
-  const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
+  const RECT wa = ui_util::WorkAreaAtCursor();
+  const int margin = Px(kPanelMargin96);
   const int width = PanelWidthPx();
   const int toX = wa.right - width - margin;
-  // Fully past the right edge (clear of DWM shadow) — same size as final, translate only.
-  const int fromX = wa.right + dpi::Scale(32, CurrentDpi());
+  // Fully past the right edge — same size as final, translate only.
+  const int fromX = wa.right + Px(kOffscreenGap96);
 
   // Size list tall enough to measure a row, populate, then shrink to content.
   const int maxH = (wa.bottom - wa.top) - margin * 2;
-  SetWindowPos(
-      hwnd_,
-      HWND_TOPMOST,
-      toX,
-      wa.bottom - margin - maxH,
-      width,
-      maxH,
-      SWP_NOACTIVATE | SWP_HIDEWINDOW);
+  SetWindowPos(hwnd_, HWND_TOPMOST, toX, wa.bottom - margin - maxH, width, maxH,
+               SWP_NOACTIVATE | SWP_HIDEWINDOW);
+  // After the move the window has the target monitor's DPI; rebuilds only if it changed.
+  EnsureFont();
   Layout();
   PopulateList();
   const int height = PanelHeightPx(wa);
   retainedHeightPx_ = height;
   const int y = wa.bottom - margin - height;
-  SetWindowPos(
-      hwnd_,
-      HWND_TOPMOST,
-      toX,
-      y,
-      width,
-      height,
-      SWP_NOACTIVATE | SWP_HIDEWINDOW);
+  SetWindowPos(hwnd_, HWND_TOPMOST, toX, y, width, height, SWP_NOACTIVATE | SWP_HIDEWINDOW);
   Layout();
-  if (listView_) {
-    UpdateColumnWidth();
-  }
 
-  SlideIn(hwnd_, fromX, toX, y);
+  slide_anim::SlideIn(hwnd_, fromX, toX, y);
   EnsureListInfoTipTopMost();
   EnsureSelection();
   SetForegroundWindow(hwnd_);
@@ -1292,7 +873,7 @@ void PanelWindow::Show() {
 }
 
 void PanelWindow::Hide() {
-  if (!hwnd_ || !IsWindowVisible(hwnd_)) {
+  if (!IsVisible()) {
     return;
   }
 
@@ -1302,33 +883,34 @@ void PanelWindow::Hide() {
 
   RECT rc = {};
   GetWindowRect(hwnd_, &rc);
-  const int y = rc.top;
-  const int fromX = rc.left;
-  const RECT wa = WorkAreaRect();
-  const int toX = wa.right + dpi::Scale(32, CurrentDpi());
-
-  SlideOut(hwnd_, fromX, toX, y);
+  const RECT wa = ui_util::WorkAreaAtCursor();
+  slide_anim::SlideOut(hwnd_, rc.left, wa.right + Px(kOffscreenGap96), rc.top);
   ShowWindow(hwnd_, SW_HIDE);
   retainedHeightPx_ = 0;
   suppressDeactivateHide_ = false;
 }
 
-void PanelWindow::Toggle() {
-  if (IsVisible()) {
-    Hide();
+void PanelWindow::RequestHide() {
+  if (owner_) {
+    PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
   } else {
-    Show();
+    Hide();
   }
 }
 
-bool PanelWindow::ContainsPoint(POINT pt) const {
-  if (!hwnd_ || !IsWindowVisible(hwnd_)) {
-    return false;
+void PanelWindow::HideUnlessPinned() {
+  if (!pinned_) {
+    RequestHide();
   }
-  RECT rc = {};
-  GetWindowRect(hwnd_, &rc);
-  return PtInRect(&rc, pt) != FALSE;
 }
+
+bool PanelWindow::PanelIsForeground() const {
+  const HWND fg = GetForegroundWindow();
+  return fg == hwnd_ || (fg != nullptr && IsChild(hwnd_, fg));
+}
+
+// ---------------------------------------------------------------------------
+// Selection and hit testing
 
 int PanelWindow::HitTestItem(POINT clientPt) const {
   if (!listView_ || items_.empty()) {
@@ -1338,139 +920,81 @@ int PanelWindow::HitTestItem(POINT clientPt) const {
   hit.pt = clientPt;
   const int index =
       static_cast<int>(SendMessageW(listView_, LVM_HITTEST, 0, reinterpret_cast<LPARAM>(&hit)));
-  if (index < 0 || index >= static_cast<int>(items_.size())) {
-    return -1;
-  }
-  if ((hit.flags & LVHT_ONITEM) == 0) {
+  if (!ItemAt(index) || (hit.flags & LVHT_ONITEM) == 0) {
     return -1;
   }
   return index;
 }
 
 int PanelWindow::SelectedIndex() const {
-  if (!listView_ || items_.empty()) {
+  if (!listView_) {
     return -1;
   }
   const int index = ListView_GetNextItem(listView_, -1, LVNI_SELECTED);
-  if (index < 0 || index >= static_cast<int>(items_.size())) {
-    return -1;
-  }
-  return index;
+  return ItemAt(index) ? index : -1;
 }
 
 void PanelWindow::EnsureSelection() {
   if (!listView_ || items_.empty()) {
     return;
   }
-  int index = SelectedIndex();
-  if (index < 0) {
-    index = 0;
-  }
-  ListView_SetItemState(listView_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-  ListView_SetItemState(listView_, index, LVIS_SELECTED | LVIS_FOCUSED,
-                        LVIS_SELECTED | LVIS_FOCUSED);
+  const int index = (std::max)(SelectedIndex(), 0);
+  SelectOnly(listView_, index);
   ListView_EnsureVisible(listView_, index, FALSE);
 }
 
-void PanelWindow::OpenAt(int index) {
-  // Placeholder rows have no real items_
-  if (items_.empty()) {
-    return;
-  }
-  if (index < 0 || index >= static_cast<int>(items_.size())) {
-    return;
-  }
+// ---------------------------------------------------------------------------
+// Item actions
 
-  const FileEntry& entry = items_[index];
-  if (expandFolders_ && entry.isDirectory) {
+void PanelWindow::OpenAt(int index) {
+  const FileEntry* entry = ItemAt(index);
+  if (!entry) {
+    return;
+  }
+  if (settings_.expandFolders && entry->isDirectory) {
     if (IsParentRow(index)) {
       NavigateUp();
     } else {
-      NavigateTo(entry.fullPath);
+      NavigateTo(entry->fullPath);
     }
     return;
   }
 
-  ShellExecuteW(hwnd_, L"open", entry.fullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-  if (!pinned_ && owner_) {
-    PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-  }
+  ShellExecuteW(hwnd_, L"open", entry->fullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  HideUnlessPinned();
 }
 
 void PanelWindow::OpenLocationAt(int index) {
-  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
-    return;
-  }
-  if (IsParentRow(index)) {
+  const FileEntry* entry = ActionableItemAt(index);
+  if (!entry) {
     return;
   }
 
-  PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(items_[index].fullPath.c_str());
+  PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(entry->fullPath.c_str());
   if (pidl) {
     SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
     ILFree(pidl);
-    if (!pinned_ && owner_) {
-      PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-    }
+    HideUnlessPinned();
     return;
   }
 
   // Fallback: open parent folder
-  std::wstring path = items_[index].fullPath;
-  const size_t pos = path.find_last_of(L"\\/");
+  const size_t pos = entry->fullPath.find_last_of(L"\\/");
   if (pos != std::wstring::npos) {
-    path.resize(pos);
-    ShellExecuteW(hwnd_, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    if (!pinned_ && owner_) {
-      PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-    }
+    const std::wstring parent = entry->fullPath.substr(0, pos);
+    ShellExecuteW(hwnd_, L"open", parent.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    HideUnlessPinned();
   }
-}
-
-bool PanelWindow::CopyItemAt(int index) {
-  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size()) ||
-      IsParentRow(index)) {
-    return false;
-  }
-  return CopyFilesToClipboard(hwnd_, items_[index].fullPath, false);
-}
-
-bool PanelWindow::CutItemAt(int index) {
-  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size()) ||
-      IsParentRow(index)) {
-    return false;
-  }
-  return CopyFilesToClipboard(hwnd_, items_[index].fullPath, true);
-}
-
-bool PanelWindow::CopyItemNameAt(int index) {
-  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size()) ||
-      IsParentRow(index)) {
-    return false;
-  }
-  return CopyTextToClipboard(hwnd_, items_[index].name);
-}
-
-bool PanelWindow::CopyItemPathAt(int index) {
-  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size()) ||
-      IsParentRow(index)) {
-    return false;
-  }
-  return CopyTextToClipboard(hwnd_, items_[index].fullPath);
 }
 
 bool PanelWindow::DeleteAt(int index) {
-  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
+  const FileEntry* entry = ActionableItemAt(index);
+  if (!entry) {
     return false;
   }
-  if (IsParentRow(index)) {
-    return false;
-  }
-
-  const std::wstring& path = items_[index].fullPath;
 
   // Double-null-terminated path list for SHFileOperation
-  std::wstring from = path;
+  std::wstring from = entry->fullPath;
   from.push_back(L'\0');
 
   SHFILEOPSTRUCTW op = {};
@@ -1489,16 +1013,13 @@ bool PanelWindow::DeleteAt(int index) {
 }
 
 void PanelWindow::BeginDragAt(int index) {
-  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
-    return;
-  }
-  if (IsParentRow(index)) {
+  const FileEntry* entry = ActionableItemAt(index);
+  if (!entry) {
     return;
   }
 
-  const std::wstring& path = items_[index].fullPath;
   IShellItem* item = nullptr;
-  HRESULT hr = SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&item));
+  HRESULT hr = SHCreateItemFromParsingName(entry->fullPath.c_str(), nullptr, IID_PPV_ARGS(&item));
   if (FAILED(hr) || !item) {
     return;
   }
@@ -1524,14 +1045,8 @@ void PanelWindow::BeginDragAt(int index) {
   dataObj->Release();
   suppressDeactivateHide_ = false;
 
-  const HWND fg = GetForegroundWindow();
-  const bool panelIsForeground = fg == hwnd_ || (fg != nullptr && IsChild(hwnd_, fg));
-  if (!panelIsForeground && !pinned_) {
-    if (owner_) {
-      PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-    } else {
-      Hide();
-    }
+  if (!PanelIsForeground() && !pinned_) {
+    RequestHide();
   } else if (listView_) {
     SetFocus(listView_);
   }
@@ -1540,67 +1055,44 @@ void PanelWindow::BeginDragAt(int index) {
 }
 
 void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
-  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
-    return;
-  }
-  if (IsParentRow(index)) {
+  const FileEntry* entry = ActionableItemAt(index);
+  if (!entry) {
     return;
   }
 
-  ListView_SetItemState(listView_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-  ListView_SetItemState(listView_, index, LVIS_SELECTED | LVIS_FOCUSED,
-                        LVIS_SELECTED | LVIS_FOCUSED);
+  SelectOnly(listView_, index);
 
   HMENU menu = CreatePopupMenu();
-  AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN, lang::T(lang::Id::ListOpen));
-  AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN_LOCATION, lang::T(lang::Id::ListOpenLocation));
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING, IDM_LIST_CUT, lang::T(lang::Id::ListCut));
-  AppendMenuW(menu, MF_STRING, IDM_LIST_COPY, lang::T(lang::Id::ListCopy));
-  AppendMenuW(menu, MF_STRING, IDM_LIST_COPY_NAME, lang::T(lang::Id::ListCopyName));
-  AppendMenuW(menu, MF_STRING, IDM_LIST_COPY_PATH, lang::T(lang::Id::ListCopyPath));
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING, IDM_LIST_DELETE, lang::T(lang::Id::ListDelete));
+  for (const MenuEntry& item : kItemMenu) {
+    if (item.id == 0) {
+      AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    } else {
+      AppendMenuW(menu, MF_STRING, item.id, lang::T(item.text));
+    }
+  }
 
   // Popup menus deactivate the owner; don't treat that as an outside dismiss.
   suppressDeactivateHide_ = true;
   theme::PreparePopupMenu(hwnd_);
   SetForegroundWindow(hwnd_);
-  const UINT cmd =
-      TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, screenPt.x, screenPt.y,
-                     0, hwnd_, nullptr);
+  const UINT cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
+                                  screenPt.x, screenPt.y, 0, hwnd_, nullptr);
   DestroyMenu(menu);
   suppressDeactivateHide_ = false;
-
-  auto requestHide = [this]() {
-    if (pinned_) {
-      return;
-    }
-    if (owner_) {
-      PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-    } else {
-      Hide();
-    }
-  };
-
-  auto panelIsForeground = [this]() -> bool {
-    const HWND fg = GetForegroundWindow();
-    return fg == hwnd_ || (fg != nullptr && IsChild(hwnd_, fg));
-  };
 
   // Clicking outside dismisses the menu and activates another window. That WA_INACTIVE
   // was suppressed above — if we steal focus back, later outside clicks never deactivate
   // us again and the panel gets stuck open.
   if (cmd == 0) {
-    if (!panelIsForeground()) {
-      requestHide();
+    if (!PanelIsForeground()) {
+      HideUnlessPinned();
     } else if (listView_) {
       SetFocus(listView_);
     }
     return;
   }
 
-  if (!panelIsForeground()) {
+  if (!PanelIsForeground()) {
     SetForegroundWindow(hwnd_);
   }
   if (listView_) {
@@ -1615,22 +1107,25 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
       OpenLocationAt(index);
       break;
     case IDM_LIST_CUT:
-      CutItemAt(index);
+      clipboard::CopyFileItem(hwnd_, entry->fullPath, true);
       break;
     case IDM_LIST_COPY:
-      CopyItemAt(index);
+      clipboard::CopyFileItem(hwnd_, entry->fullPath, false);
       break;
     case IDM_LIST_COPY_NAME:
-      CopyItemNameAt(index);
+      clipboard::CopyText(hwnd_, entry->name);
       break;
     case IDM_LIST_COPY_PATH:
-      CopyItemPathAt(index);
+      clipboard::CopyText(hwnd_, entry->fullPath);
       break;
     case IDM_LIST_DELETE:
       DeleteAt(index);
       break;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Message handling
 
 LRESULT CALLBACK PanelWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
   PanelWindow* self = nullptr;
@@ -1646,6 +1141,129 @@ LRESULT CALLBACK PanelWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     return DefWindowProcW(hwnd, msg, wParam, lParam);
   }
   return self->HandleMessage(msg, wParam, lParam);
+}
+
+bool PanelWindow::HandleNavigationKey(UINT vk) {
+  switch (vk) {
+    case VK_RETURN:
+      OpenAt(SelectedIndex());
+      return true;
+    case VK_BACK:
+      NavigateUp();
+      return true;
+    case VK_ESCAPE:
+      RequestHide();
+      return true;
+    default:
+      return false;
+  }
+}
+
+void PanelWindow::OnGetDispInfo(NMLVDISPINFOW* di) const {
+  const int index = di->item.iItem;
+  const FileEntry* entry = ItemAt(index);
+
+  if (di->item.mask & LVIF_IMAGE) {
+    di->item.iImage = entry ? entry->iconIndex : I_IMAGENONE;
+  }
+
+  if ((di->item.mask & LVIF_TEXT) && di->item.pszText && di->item.cchTextMax > 0) {
+    wchar_t* out = di->item.pszText;
+    const int cap = di->item.cchTextMax;
+    out[0] = L'\0';
+    if (items_.empty()) {
+      wcsncpy_s(out, cap, lang::T(emptyTextId_), _TRUNCATE);
+    } else if (entry) {
+      wcsncpy_s(out, cap, entry->name.c_str(), _TRUNCATE);
+      if (entry->isDirectory && !IsParentRow(index)) {
+        wcsncat_s(out, cap, L"\\", _TRUNCATE);
+      }
+    }
+  }
+}
+
+void PanelWindow::OnGetInfoTip(NMLVGETINFOTIPW* tip) const {
+  if (!tip->pszText || tip->cchTextMax <= 0) {
+    return;
+  }
+  tip->pszText[0] = L'\0';
+  const FileEntry* entry = ItemAt(tip->iItem);
+  if (!entry) {
+    return;
+  }
+  const std::wstring name = DisplayName(*entry, IsParentRow(tip->iItem));
+
+  // Only show tip when the label is truncated in the column.
+  RECT labelRc = {};
+  if (!ListView_GetItemRect(listView_, tip->iItem, &labelRc, LVIR_LABEL)) {
+    return;
+  }
+  HDC hdc = GetDC(listView_);
+  if (!hdc) {
+    return;
+  }
+  HGDIOBJ oldFont = listFont_ ? SelectObject(hdc, listFont_) : nullptr;
+  SIZE sz = {};
+  GetTextExtentPoint32W(hdc, name.c_str(), static_cast<int>(name.size()), &sz);
+  if (oldFont) {
+    SelectObject(hdc, oldFont);
+  }
+  ReleaseDC(listView_, hdc);
+
+  if (sz.cx > labelRc.right - labelRc.left) {
+    wcsncpy_s(tip->pszText, tip->cchTextMax, name.c_str(), _TRUNCATE);
+  }
+}
+
+bool PanelWindow::OnNotify(const NMHDR* nmhdr, LRESULT* result) {
+  if (nmhdr->idFrom != IDC_FILE_LIST) {
+    return false;
+  }
+  *result = 0;
+  switch (nmhdr->code) {
+    case LVN_KEYDOWN:
+      return HandleNavigationKey(reinterpret_cast<const NMLVKEYDOWN*>(nmhdr)->wVKey);
+    case LVN_GETDISPINFOW:
+      OnGetDispInfo(reinterpret_cast<NMLVDISPINFOW*>(const_cast<NMHDR*>(nmhdr)));
+      return true;
+    case LVN_GETINFOTIPW:
+      OnGetInfoTip(reinterpret_cast<NMLVGETINFOTIPW*>(const_cast<NMHDR*>(nmhdr)));
+      return true;
+    case LVN_BEGINDRAG:
+      BeginDragAt(reinterpret_cast<const NMLISTVIEW*>(nmhdr)->iItem);
+      return true;
+    case NM_DBLCLK:
+      OpenAt(reinterpret_cast<const NMITEMACTIVATE*>(nmhdr)->iItem);
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool PanelWindow::OnContextMenu(HWND source, POINT pt) {
+  // Handle only WM_CONTEXTMENU (not also NM_RCLICK) so the menu is shown once and closes cleanly.
+  if (source != listView_ && source != hwnd_ && GetParent(source) != hwnd_) {
+    return false;
+  }
+  int index = -1;
+  if (pt.x == -1 && pt.y == -1) {
+    // Keyboard invocation: anchor below the selected row.
+    index = ListView_GetNextItem(listView_, -1, LVNI_SELECTED);
+    RECT rc = {};
+    if (index >= 0 && ListView_GetItemRect(listView_, index, &rc, LVIR_BOUNDS)) {
+      pt.x = rc.left;
+      pt.y = rc.bottom;
+      ClientToScreen(listView_, &pt);
+    } else {
+      GetCursorPos(&pt);
+    }
+  } else {
+    POINT client = pt;
+    ScreenToClient(listView_, &client);
+    index = HitTestItem(client);
+  }
+  ShowItemContextMenu(index, pt);
+  return true;
 }
 
 LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -1667,7 +1285,7 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
       return 0;
     }
     case WM_LBUTTONDOWN: {
-      POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+      const POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
       if (HitTestPin(pt)) {
         TogglePin();
         return 0;
@@ -1698,171 +1316,30 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
       Layout();
       return 0;
     case WM_ACTIVATE:
-      if (LOWORD(wParam) == WA_INACTIVE && !suppressDeactivateHide_ && !pinned_) {
-        if (owner_) {
-          PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-        }
+      if (LOWORD(wParam) == WA_INACTIVE && !suppressDeactivateHide_) {
+        HideUnlessPinned();
       }
       return 0;
     case WM_KEYDOWN:
-      if (wParam == VK_ESCAPE) {
-        if (owner_) {
-          PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-        } else {
-          Hide();
-        }
-        return 0;
-      }
-      if (wParam == VK_BACK) {
-        NavigateUp();
+      if (HandleNavigationKey(static_cast<UINT>(wParam))) {
         return 0;
       }
       break;
     case WM_NOTIFY: {
-      auto* nmhdr = reinterpret_cast<LPNMHDR>(lParam);
-      if (nmhdr->idFrom != IDC_FILE_LIST) {
-        break;
-      }
-      if (nmhdr->code == LVN_KEYDOWN) {
-        const auto* kd = reinterpret_cast<LPNMLVKEYDOWN>(lParam);
-        if (kd->wVKey == VK_RETURN) {
-          OpenAt(SelectedIndex());
-          return 0;
-        }
-        if (kd->wVKey == VK_BACK) {
-          NavigateUp();
-          return 0;
-        }
-        if (kd->wVKey == VK_ESCAPE) {
-          if (owner_) {
-            PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-          } else {
-            Hide();
-          }
-          return 0;
-        }
-        break;
-      }
-      if (nmhdr->code == LVN_GETDISPINFOW) {
-        auto* di = reinterpret_cast<NMLVDISPINFOW*>(lParam);
-        const int index = di->item.iItem;
-
-        if (di->item.mask & LVIF_IMAGE) {
-          if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
-            di->item.iImage = I_IMAGENONE;
-          } else {
-            di->item.iImage = items_[index].iconIndex;
-          }
-        }
-
-        if ((di->item.mask & LVIF_TEXT) && di->item.pszText && di->item.cchTextMax > 0) {
-          di->item.pszText[0] = L'\0';
-
-          if (items_.empty()) {
-            const wchar_t* msg = lang::T(lang::Id::EmptyFolder);
-            if (watchPath_.empty()) {
-              msg = lang::T(lang::Id::ChooseFolderHint);
-            } else if (!DirectoryWatcher::PathExists(watchPath_)) {
-              msg = lang::T(lang::Id::PathInvalid);
-            }
-            wcsncpy_s(di->item.pszText, di->item.cchTextMax, msg, _TRUNCATE);
-          } else if (index >= 0 && index < static_cast<int>(items_.size())) {
-            const FileEntry& e = items_[index];
-            std::wstring name = e.name;
-            if (e.isDirectory && e.name != L"..") {
-              name += L"\\";
-            }
-            wcsncpy_s(di->item.pszText, di->item.cchTextMax, name.c_str(), _TRUNCATE);
-          }
-        }
-        return 0;
-      }
-      if (nmhdr->code == LVN_GETINFOTIPW) {
-        auto* tip = reinterpret_cast<NMLVGETINFOTIPW*>(lParam);
-        if (!tip || !tip->pszText || tip->cchTextMax <= 0) {
-          return 0;
-        }
-        tip->pszText[0] = L'\0';
-        if (items_.empty() || tip->iItem < 0 ||
-            tip->iItem >= static_cast<int>(items_.size())) {
-          return 0;
-        }
-        const FileEntry& e = items_[tip->iItem];
-        std::wstring name = e.name;
-        if (e.isDirectory && e.name != L"..") {
-          name += L"\\";
-        }
-
-        // Only show tip when the label is truncated in the column.
-        RECT labelRc = {};
-        if (!ListView_GetItemRect(listView_, tip->iItem, &labelRc, LVIR_LABEL)) {
-          return 0;
-        }
-        HDC hdc = GetDC(listView_);
-        if (!hdc) {
-          return 0;
-        }
-        HFONT oldFont = nullptr;
-        if (listFont_) {
-          oldFont = static_cast<HFONT>(SelectObject(hdc, listFont_));
-        }
-        SIZE sz = {};
-        GetTextExtentPoint32W(hdc, name.c_str(), static_cast<int>(name.size()), &sz);
-        if (oldFont) {
-          SelectObject(hdc, oldFont);
-        }
-        ReleaseDC(listView_, hdc);
-
-        const int avail = labelRc.right - labelRc.left;
-        if (sz.cx > avail) {
-          wcsncpy_s(tip->pszText, tip->cchTextMax, name.c_str(), _TRUNCATE);
-        }
-        return 0;
-      }
-      if (nmhdr->code == LVN_BEGINDRAG) {
-        const auto* lv = reinterpret_cast<LPNMLISTVIEW>(lParam);
-        BeginDragAt(lv->iItem);
-        return 0;
-      }
-      if (nmhdr->code == NM_DBLCLK) {
-        auto* item = reinterpret_cast<LPNMITEMACTIVATE>(lParam);
-        OpenAt(item->iItem);
-        return 0;
+      LRESULT result = 0;
+      if (OnNotify(reinterpret_cast<const NMHDR*>(lParam), &result)) {
+        return result;
       }
       break;
     }
-    case WM_CONTEXTMENU: {
-      // Handle only WM_CONTEXTMENU (not also NM_RCLICK) so the menu is shown once and closes cleanly.
-      HWND src = reinterpret_cast<HWND>(wParam);
-      if (src != listView_ && src != hwnd_ && GetParent(src) != hwnd_) {
-        break;
+    case WM_CONTEXTMENU:
+      if (OnContextMenu(reinterpret_cast<HWND>(wParam),
+                        POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)})) {
+        return 0;
       }
-      POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-      int index = -1;
-      if (pt.x == -1 && pt.y == -1) {
-        index = ListView_GetNextItem(listView_, -1, LVNI_SELECTED);
-        RECT rc = {};
-        if (index >= 0 && ListView_GetItemRect(listView_, index, &rc, LVIR_BOUNDS)) {
-          pt.x = rc.left;
-          pt.y = rc.bottom;
-          ClientToScreen(listView_, &pt);
-        } else {
-          GetCursorPos(&pt);
-        }
-      } else {
-        POINT client = pt;
-        ScreenToClient(listView_, &client);
-        index = HitTestItem(client);
-      }
-      ShowItemContextMenu(index, pt);
-      return 0;
-    }
+      break;
     case WM_CLOSE:
-      if (owner_) {
-        PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
-      } else {
-        Hide();
-      }
+      RequestHide();
       return 0;
     case WM_DESTROY:
       hwnd_ = nullptr;

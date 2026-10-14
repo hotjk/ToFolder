@@ -1,145 +1,163 @@
 #include "config.h"
 
+#include "str_util.h"
+
 #include <windows.h>
 
-#include <fstream>
 #include <string>
 #include <vector>
 
 namespace config {
 namespace {
 
-std::wstring Trim(const std::wstring& s) {
-  size_t begin = 0;
-  while (begin < s.size() && iswspace(s[begin])) {
-    ++begin;
-  }
-  size_t end = s.size();
-  while (end > begin && iswspace(s[end - 1])) {
-    --end;
-  }
-  return s.substr(begin, end - begin);
-}
+constexpr int kMaxFilters = 64;
+
+// Content of the config file as last loaded or written; Save() skips identical writes.
+std::string g_lastFileContent;
 
 SortMode ParseSortMode(const std::wstring& value) {
-  const std::wstring v = Trim(value);
-  if (_wcsicmp(v.c_str(), L"name") == 0) {
-    return SortMode::ByName;
-  }
-  return SortMode::ByTime;
+  return str::EqualsNoCase(value, L"name") ? SortMode::ByName : SortMode::ByTime;
 }
 
 const wchar_t* SortModeToString(SortMode mode) {
   return mode == SortMode::ByName ? L"name" : L"time";
 }
 
-FontSize ParseFontSize(const std::wstring& value) {
-  const std::wstring v = Trim(value);
-  if (_wcsicmp(v.c_str(), L"medium") == 0 || _wcsicmp(v.c_str(), L"mid") == 0) {
-    return FontSize::Medium;
+// Shared by FontSize and PanelSize, which both use Small / Medium / Large.
+template <typename SizeEnum>
+SizeEnum ParseSizeLevel(const std::wstring& value) {
+  if (str::EqualsNoCase(value, L"medium") || str::EqualsNoCase(value, L"mid")) {
+    return SizeEnum::Medium;
   }
-  if (_wcsicmp(v.c_str(), L"large") == 0 || _wcsicmp(v.c_str(), L"big") == 0) {
-    return FontSize::Large;
+  if (str::EqualsNoCase(value, L"large") || str::EqualsNoCase(value, L"big")) {
+    return SizeEnum::Large;
   }
-  return FontSize::Small;
+  return SizeEnum::Small;
 }
 
-const wchar_t* FontSizeToString(FontSize size) {
-  switch (size) {
-    case FontSize::Medium:
-      return L"medium";
-    case FontSize::Large:
-      return L"large";
-    case FontSize::Small:
-    default:
-      return L"small";
-  }
-}
-
-PanelSize ParsePanelSize(const std::wstring& value) {
-  const std::wstring v = Trim(value);
-  if (_wcsicmp(v.c_str(), L"medium") == 0 || _wcsicmp(v.c_str(), L"mid") == 0) {
-    return PanelSize::Medium;
-  }
-  if (_wcsicmp(v.c_str(), L"large") == 0 || _wcsicmp(v.c_str(), L"big") == 0) {
-    return PanelSize::Large;
-  }
-  return PanelSize::Small;
-}
-
-const wchar_t* PanelSizeToString(PanelSize size) {
-  switch (size) {
-    case PanelSize::Medium:
-      return L"medium";
-    case PanelSize::Large:
-      return L"large";
-    case PanelSize::Small:
-    default:
-      return L"small";
-  }
+template <typename SizeEnum>
+const wchar_t* SizeLevelToString(SizeEnum size) {
+  constexpr const wchar_t* kNames[] = {L"small", L"medium", L"large"};
+  return kNames[SizeIndex(size)];
 }
 
 bool ParseBool(const std::wstring& value, bool defaultValue) {
-  const std::wstring v = Trim(value);
-  if (v.empty()) {
-    return defaultValue;
+  for (const wchar_t* t : {L"1", L"true", L"yes", L"on"}) {
+    if (str::EqualsNoCase(value, t)) {
+      return true;
+    }
   }
-  if (_wcsicmp(v.c_str(), L"1") == 0 || _wcsicmp(v.c_str(), L"true") == 0 ||
-      _wcsicmp(v.c_str(), L"yes") == 0 || _wcsicmp(v.c_str(), L"on") == 0) {
-    return true;
-  }
-  if (_wcsicmp(v.c_str(), L"0") == 0 || _wcsicmp(v.c_str(), L"false") == 0 ||
-      _wcsicmp(v.c_str(), L"no") == 0 || _wcsicmp(v.c_str(), L"off") == 0) {
-    return false;
+  for (const wchar_t* f : {L"0", L"false", L"no", L"off"}) {
+    if (str::EqualsNoCase(value, f)) {
+      return false;
+    }
   }
   return defaultValue;
 }
 
-std::vector<std::wstring> SplitComma(const std::wstring& raw) {
-  std::vector<std::wstring> parts;
-  size_t start = 0;
-  while (start <= raw.size()) {
-    size_t comma = raw.find(L',', start);
-    if (comma == std::wstring::npos) {
-      comma = raw.size();
-    }
-    std::wstring part = Trim(raw.substr(start, comma - start));
-    if (!part.empty()) {
-      parts.push_back(std::move(part));
-    }
-    if (comma >= raw.size()) {
-      break;
-    }
-    start = comma + 1;
-  }
-  return parts;
+const wchar_t* BoolToString(bool value) {
+  return value ? L"true" : L"false";
 }
 
-std::wstring JoinComma(const std::vector<std::wstring>& parts) {
-  std::wstring out;
-  for (size_t i = 0; i < parts.size(); ++i) {
-    if (i > 0) {
-      out += L',';
-    }
-    out += parts[i];
+lang::Language ParseLanguage(const std::wstring& value) {
+  if (str::EqualsNoCase(value, L"zh") || str::EqualsNoCase(value, L"zh-CN") ||
+      str::EqualsNoCase(value, L"chinese")) {
+    return lang::Language::Chinese;
   }
-  return out;
+  return lang::Language::English;
 }
 
-std::wstring ToLowerCopy(std::wstring s) {
-  for (wchar_t& ch : s) {
-    ch = static_cast<wchar_t>(towlower(ch));
-  }
-  return s;
-}
-
-bool StartsWithKey(const std::wstring& line, const wchar_t* key, std::wstring& valueOut) {
-  const size_t keyLen = wcslen(key);
-  if (line.compare(0, keyLen, key) != 0) {
+// "Filter<N>Name" / "Filter<N>Ext" -> 0-based slot and field suffix.
+bool ParseFilterKey(const std::wstring& key, size_t& slot, std::wstring& field) {
+  constexpr size_t kPrefixLen = 6;
+  if (key.compare(0, kPrefixLen, L"Filter") != 0) {
     return false;
   }
-  valueOut = Trim(line.substr(keyLen));
+  size_t i = kPrefixLen;
+  int index = 0;
+  while (i < key.size() && key[i] >= L'0' && key[i] <= L'9' && index <= kMaxFilters) {
+    index = index * 10 + (key[i] - L'0');
+    ++i;
+  }
+  if (i == kPrefixLen || index < 1 || index > kMaxFilters) {
+    return false;
+  }
+  slot = static_cast<size_t>(index - 1);
+  field = key.substr(i);
   return true;
+}
+
+bool ReadFileBytes(const std::wstring& path, std::string& out) {
+  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) {
+    return false;
+  }
+  LARGE_INTEGER size = {};
+  bool ok = GetFileSizeEx(file, &size) && size.QuadPart < (1 << 20);
+  if (ok) {
+    out.resize(static_cast<size_t>(size.QuadPart));
+    DWORD read = 0;
+    ok = out.empty() ||
+         (ReadFile(file, out.data(), static_cast<DWORD>(out.size()), &read, nullptr) &&
+          read == out.size());
+  }
+  CloseHandle(file);
+  return ok;
+}
+
+bool WriteFileBytes(const std::wstring& path, const std::string& bytes) {
+  // Write a sibling temp file and swap it in so a failed write never truncates the config.
+  const std::wstring temp = path + L".tmp";
+  HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) {
+    return false;
+  }
+  DWORD written = 0;
+  const bool ok = WriteFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &written,
+                            nullptr) &&
+                  written == bytes.size();
+  CloseHandle(file);
+  if (!ok || !MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+    DeleteFileW(temp.c_str());
+    return false;
+  }
+  return true;
+}
+
+bool FileExists(const std::wstring& path) {
+  const DWORD attrs = GetFileAttributesW(path.c_str());
+  return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+std::wstring Serialize(const Settings& settings) {
+  std::wstring out;
+  auto put = [&out](const std::wstring& key, const std::wstring& value) {
+    out += key;
+    out += L'=';
+    out += value;
+    out += L"\r\n";
+  };
+  put(L"WatchPath", settings.watchPath);
+  put(L"SortMode", SortModeToString(settings.sortMode));
+  put(L"FontSize", SizeLevelToString(settings.fontSize));
+  put(L"PanelSize", SizeLevelToString(settings.panelSize));
+  put(L"ShowHidden", BoolToString(settings.showHidden));
+  put(L"ExpandFolders", BoolToString(settings.expandFolders));
+  put(L"WatchEnabled", BoolToString(settings.watchEnabled));
+  put(L"ShowFilters", BoolToString(settings.showFilters));
+  put(L"HotkeyEnabled", BoolToString(settings.hotkeyEnabled));
+  put(L"Hotkey", settings.hotkey);
+  put(L"Language", settings.language == lang::Language::Chinese ? L"zh" : L"en");
+  put(L"FilterCount", std::to_wstring(settings.filters.size()));
+  for (size_t i = 0; i < settings.filters.size(); ++i) {
+    const std::wstring prefix = L"Filter" + std::to_wstring(i + 1);
+    put(prefix + L"Name", settings.filters[i].name);
+    put(prefix + L"Ext", settings.filters[i].extensions);
+  }
+  put(L"ActiveFilters", str::Join(settings.activeFilters, L','));
+  return out;
 }
 
 }  // namespace
@@ -157,24 +175,21 @@ std::vector<FilterItem> DefaultFilters() {
 }
 
 std::wstring NormalizeExtensions(const std::wstring& raw) {
-  const std::wstring trimmed = Trim(raw);
-  if (trimmed == L"*" || _wcsicmp(trimmed.c_str(), L":file") == 0 ||
-      _wcsicmp(trimmed.c_str(), L":file:") == 0) {
+  const std::wstring trimmed = str::Trim(raw);
+  if (trimmed == L"*" || str::EqualsNoCase(trimmed, L":file") ||
+      str::EqualsNoCase(trimmed, L":file:")) {
     return L"*";
   }
-  if (trimmed == L"/" || _wcsicmp(trimmed.c_str(), L":folder") == 0 ||
-      _wcsicmp(trimmed.c_str(), L":folder:") == 0) {
+  if (trimmed == L"/" || str::EqualsNoCase(trimmed, L":folder") ||
+      str::EqualsNoCase(trimmed, L":folder:")) {
     return L"/";
   }
 
-  std::vector<std::wstring> parts = SplitComma(raw);
   std::vector<std::wstring> cleaned;
-  cleaned.reserve(parts.size());
-  for (std::wstring part : parts) {
-    while (!part.empty() && part.front() == L'.') {
-      part.erase(part.begin());
-    }
-    part = ToLowerCopy(Trim(part));
+  for (std::wstring part : str::SplitTrim(raw, L',')) {
+    const size_t firstNonDot = part.find_first_not_of(L'.');
+    part = firstNonDot == std::wstring::npos ? std::wstring() : part.substr(firstNonDot);
+    part = str::ToLower(str::Trim(part));
     if (part.empty() || part == L"*" || part == L"/") {
       continue;
     }
@@ -189,49 +204,51 @@ std::wstring NormalizeExtensions(const std::wstring& raw) {
       cleaned.push_back(std::move(part));
     }
   }
-  return JoinComma(cleaned);
+  return str::Join(cleaned, L',');
 }
 
 void PruneActiveFilters(const std::vector<FilterItem>& filters,
                         std::vector<std::wstring>& activeFilters) {
+  // Keep only names that exist (using the definition's casing), deduplicated, in order.
   std::vector<std::wstring> kept;
   for (const auto& name : activeFilters) {
-    bool found = false;
+    const FilterItem* match = nullptr;
     for (const auto& f : filters) {
       if (_wcsicmp(f.name.c_str(), name.c_str()) == 0) {
-        kept.push_back(f.name);  // canonical casing from definition
-        found = true;
+        match = &f;
         break;
       }
     }
-    if (!found) {
+    if (!match) {
       continue;
     }
-  }
-  // Deduplicate while preserving order
-  std::vector<std::wstring> unique;
-  for (const auto& name : kept) {
     bool dup = false;
-    for (const auto& u : unique) {
-      if (_wcsicmp(u.c_str(), name.c_str()) == 0) {
+    for (const auto& k : kept) {
+      if (_wcsicmp(k.c_str(), match->name.c_str()) == 0) {
         dup = true;
         break;
       }
     }
     if (!dup) {
-      unique.push_back(name);
+      kept.push_back(match->name);
     }
   }
-  activeFilters = std::move(unique);
+  activeFilters = std::move(kept);
 }
 
 std::wstring GetExePath() {
-  wchar_t buf[MAX_PATH] = {};
-  DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-  if (n == 0 || n >= MAX_PATH) {
-    return L"ToFolder.exe";
+  std::wstring buf(MAX_PATH, L'\0');
+  for (;;) {
+    const DWORD n = GetModuleFileNameW(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
+    if (n == 0) {
+      return L"ToFolder.exe";
+    }
+    if (n < buf.size()) {
+      buf.resize(n);
+      return buf;
+    }
+    buf.resize(buf.size() * 2);
   }
-  return std::wstring(buf, n);
 }
 
 std::wstring GetExeDirectory() {
@@ -254,30 +271,30 @@ std::wstring GetConfigPath() {
   return exe + L".ini";
 }
 
-std::wstring GetSingleInstanceMutexName() {
-  // Hash full exe path so different copies/renames can run side by side,
-  // while the same path remains single-instance. Mutex names cannot contain '\'.
+std::wstring GetExePathHash() {
+  // FNV-1a of the lowercased exe path: stable per path, differs for renamed copies.
   const std::wstring exe = GetExePath();
   unsigned int hash = 2166136261u;
   for (wchar_t ch : exe) {
     hash ^= static_cast<unsigned int>(towlower(ch));
     hash *= 16777619u;
   }
-  wchar_t name[64] = {};
-  swprintf_s(name, L"Local\\ToFolder_Exe_%08X", hash);
-  return name;
+  wchar_t text[16] = {};
+  swprintf_s(text, L"%08X", hash);
+  return text;
 }
 
-bool FileExists(const std::wstring& path) {
-  const DWORD attrs = GetFileAttributesW(path.c_str());
-  return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+std::wstring GetSingleInstanceMutexName() {
+  // Mutex names cannot contain '\' beyond the namespace prefix, hence the hash.
+  return L"Local\\ToFolder_Exe_" + GetExePathHash();
 }
 
 Settings Load() {
   Settings settings;
   settings.filters = DefaultFilters();
 
-  std::wstring path = GetConfigPath();
+  const std::wstring configPath = GetConfigPath();
+  std::wstring path = configPath;
   // Legacy fallback: older builds used config.ini next to the exe.
   if (!FileExists(path)) {
     const std::wstring legacy = GetExeDirectory() + L"\\config.ini";
@@ -285,112 +302,77 @@ Settings Load() {
       path = legacy;
     }
   }
-  std::wifstream in(path);
-  if (!in) {
+  std::string bytes;
+  if (!ReadFileBytes(path, bytes)) {
     return settings;
+  }
+  if (path == configPath) {
+    g_lastFileContent = bytes;
   }
 
   bool filterCountSeen = false;
-  int filterCount = 0;
   std::vector<FilterItem> loadedFilters;
   std::wstring activeRaw;
 
-  std::wstring line;
-  while (std::getline(in, line)) {
-    if (!line.empty() && line.back() == L'\r') {
-      line.pop_back();
+  const std::wstring text = str::DecodeText(bytes);
+  size_t lineStart = 0;
+  while (lineStart < text.size()) {
+    size_t lineEnd = text.find(L'\n', lineStart);
+    if (lineEnd == std::wstring::npos) {
+      lineEnd = text.size();
     }
-    std::wstring value;
-    if (StartsWithKey(line, L"WatchPath=", value)) {
+    const std::wstring line = text.substr(lineStart, lineEnd - lineStart);
+    lineStart = lineEnd + 1;
+
+    const size_t eq = line.find(L'=');
+    if (eq == std::wstring::npos) {
+      continue;
+    }
+    const std::wstring key = str::Trim(line.substr(0, eq));
+    const std::wstring value = str::Trim(line.substr(eq + 1));
+
+    size_t slot = 0;
+    std::wstring field;
+    if (key == L"WatchPath") {
       settings.watchPath = value;
-      continue;
-    }
-    if (StartsWithKey(line, L"SortMode=", value)) {
+    } else if (key == L"SortMode") {
       settings.sortMode = ParseSortMode(value);
-      continue;
-    }
-    if (StartsWithKey(line, L"FontSize=", value)) {
-      settings.fontSize = ParseFontSize(value);
-      continue;
-    }
-    if (StartsWithKey(line, L"PanelSize=", value)) {
-      settings.panelSize = ParsePanelSize(value);
-      continue;
-    }
-    if (StartsWithKey(line, L"ShowHidden=", value)) {
-      settings.showHidden = ParseBool(value, false);
-      continue;
-    }
-    if (StartsWithKey(line, L"ExpandFolders=", value)) {
-      settings.expandFolders = ParseBool(value, false);
-      continue;
-    }
-    if (StartsWithKey(line, L"WatchEnabled=", value)) {
-      settings.watchEnabled = ParseBool(value, true);
-      continue;
-    }
-    if (StartsWithKey(line, L"ShowFilters=", value)) {
-      settings.showFilters = ParseBool(value, true);
-      continue;
-    }
-    if (StartsWithKey(line, L"HotkeyEnabled=", value)) {
-      settings.hotkeyEnabled = ParseBool(value, false);
-      continue;
-    }
-    if (StartsWithKey(line, L"Hotkey=", value)) {
+    } else if (key == L"FontSize") {
+      settings.fontSize = ParseSizeLevel<FontSize>(value);
+    } else if (key == L"PanelSize") {
+      settings.panelSize = ParseSizeLevel<PanelSize>(value);
+    } else if (key == L"ShowHidden") {
+      settings.showHidden = ParseBool(value, settings.showHidden);
+    } else if (key == L"ExpandFolders") {
+      settings.expandFolders = ParseBool(value, settings.expandFolders);
+    } else if (key == L"WatchEnabled") {
+      settings.watchEnabled = ParseBool(value, settings.watchEnabled);
+    } else if (key == L"ShowFilters") {
+      settings.showFilters = ParseBool(value, settings.showFilters);
+    } else if (key == L"HotkeyEnabled") {
+      settings.hotkeyEnabled = ParseBool(value, settings.hotkeyEnabled);
+    } else if (key == L"Hotkey") {
       if (!value.empty()) {
         settings.hotkey = value;
       }
-      continue;
-    }
-    if (StartsWithKey(line, L"Language=", value)) {
+    } else if (key == L"Language") {
       settings.languageConfigured = true;
-      if (_wcsicmp(value.c_str(), L"zh") == 0 || _wcsicmp(value.c_str(), L"zh-CN") == 0 ||
-          _wcsicmp(value.c_str(), L"chinese") == 0) {
-        settings.language = lang::Language::Chinese;
-      } else {
-        settings.language = lang::Language::English;
-      }
-      continue;
-    }
-    if (StartsWithKey(line, L"FilterCount=", value)) {
+      settings.language = ParseLanguage(value);
+    } else if (key == L"FilterCount") {
       filterCountSeen = true;
-      filterCount = _wtoi(value.c_str());
-      if (filterCount < 0) {
-        filterCount = 0;
-      }
-      if (filterCount > 64) {
-        filterCount = 64;
-      }
-      loadedFilters.assign(static_cast<size_t>(filterCount), FilterItem{});
-      continue;
-    }
-    if (StartsWithKey(line, L"ActiveFilters=", value)) {
+      int count = _wtoi(value.c_str());
+      count = count < 0 ? 0 : (count > kMaxFilters ? kMaxFilters : count);
+      loadedFilters.resize(static_cast<size_t>(count));
+    } else if (key == L"ActiveFilters") {
       activeRaw = value;
-      continue;
-    }
-    // FilterNName= / FilterNExt=
-    if (line.compare(0, 6, L"Filter") == 0) {
-      size_t i = 6;
-      if (i >= line.size() || line[i] < L'0' || line[i] > L'9') {
-        continue;
-      }
-      int index = 0;
-      while (i < line.size() && line[i] >= L'0' && line[i] <= L'9') {
-        index = index * 10 + (line[i] - L'0');
-        ++i;
-      }
-      if (index < 1 || index > 64) {
-        continue;
-      }
-      const size_t slot = static_cast<size_t>(index - 1);
+    } else if (ParseFilterKey(key, slot, field)) {
       if (slot >= loadedFilters.size()) {
         loadedFilters.resize(slot + 1);
       }
-      if (line.compare(i, 5, L"Name=") == 0) {
-        loadedFilters[slot].name = Trim(line.substr(i + 5));
-      } else if (line.compare(i, 4, L"Ext=") == 0) {
-        loadedFilters[slot].extensions = NormalizeExtensions(line.substr(i + 4));
+      if (field == L"Name") {
+        loadedFilters[slot].name = value;
+      } else if (field == L"Ext") {
+        loadedFilters[slot].extensions = NormalizeExtensions(value);
       }
     }
   }
@@ -398,153 +380,29 @@ Settings Load() {
   if (filterCountSeen) {
     settings.filters.clear();
     for (auto& item : loadedFilters) {
-      item.name = Trim(item.name);
-      item.extensions = NormalizeExtensions(item.extensions);
       if (!item.name.empty()) {
         settings.filters.push_back(std::move(item));
       }
     }
   }
 
-  settings.activeFilters = SplitComma(activeRaw);
+  settings.activeFilters = str::SplitTrim(activeRaw, L',');
   PruneActiveFilters(settings.filters, settings.activeFilters);
   return settings;
 }
 
 bool Save(const Settings& settings) {
-  const std::wstring configPath = GetConfigPath();
-  std::wofstream out(configPath, std::ios::trunc);
-  if (!out) {
+  Settings normalized = settings;
+  PruneActiveFilters(normalized.filters, normalized.activeFilters);
+  const std::string bytes = str::WideToUtf8(Serialize(normalized));
+  if (bytes == g_lastFileContent) {
+    return true;
+  }
+  if (!WriteFileBytes(GetConfigPath(), bytes)) {
     return false;
   }
-  out << L"WatchPath=" << settings.watchPath << L"\n";
-  out << L"SortMode=" << SortModeToString(settings.sortMode) << L"\n";
-  out << L"FontSize=" << FontSizeToString(settings.fontSize) << L"\n";
-  out << L"PanelSize=" << PanelSizeToString(settings.panelSize) << L"\n";
-  out << L"ShowHidden=" << (settings.showHidden ? L"true" : L"false") << L"\n";
-  out << L"ExpandFolders=" << (settings.expandFolders ? L"true" : L"false") << L"\n";
-  out << L"WatchEnabled=" << (settings.watchEnabled ? L"true" : L"false") << L"\n";
-  out << L"ShowFilters=" << (settings.showFilters ? L"true" : L"false") << L"\n";
-  out << L"HotkeyEnabled=" << (settings.hotkeyEnabled ? L"true" : L"false") << L"\n";
-  out << L"Hotkey=" << settings.hotkey << L"\n";
-  out << L"Language=" << (settings.language == lang::Language::Chinese ? L"zh" : L"en") << L"\n";
-
-  out << L"FilterCount=" << settings.filters.size() << L"\n";
-  for (size_t i = 0; i < settings.filters.size(); ++i) {
-    out << L"Filter" << (i + 1) << L"Name=" << settings.filters[i].name << L"\n";
-    out << L"Filter" << (i + 1) << L"Ext=" << settings.filters[i].extensions << L"\n";
-  }
-  out << L"ActiveFilters=" << JoinComma(settings.activeFilters) << L"\n";
-  return static_cast<bool>(out);
-}
-
-std::wstring LoadWatchPath() {
-  return Load().watchPath;
-}
-
-bool SaveWatchPath(const std::wstring& path) {
-  Settings settings = Load();
-  settings.watchPath = path;
-  return Save(settings);
-}
-
-SortMode LoadSortMode() {
-  return Load().sortMode;
-}
-
-bool SaveSortMode(SortMode mode) {
-  Settings settings = Load();
-  settings.sortMode = mode;
-  return Save(settings);
-}
-
-FontSize LoadFontSize() {
-  return Load().fontSize;
-}
-
-bool SaveFontSize(FontSize size) {
-  Settings settings = Load();
-  settings.fontSize = size;
-  return Save(settings);
-}
-
-PanelSize LoadPanelSize() {
-  return Load().panelSize;
-}
-
-bool SavePanelSize(PanelSize size) {
-  Settings settings = Load();
-  settings.panelSize = size;
-  return Save(settings);
-}
-
-bool LoadShowHidden() {
-  return Load().showHidden;
-}
-
-bool SaveShowHidden(bool showHidden) {
-  Settings settings = Load();
-  settings.showHidden = showHidden;
-  return Save(settings);
-}
-
-bool LoadExpandFolders() {
-  return Load().expandFolders;
-}
-
-bool SaveExpandFolders(bool expandFolders) {
-  Settings settings = Load();
-  settings.expandFolders = expandFolders;
-  return Save(settings);
-}
-
-bool LoadWatchEnabled() {
-  return Load().watchEnabled;
-}
-
-bool SaveWatchEnabled(bool enabled) {
-  Settings settings = Load();
-  settings.watchEnabled = enabled;
-  return Save(settings);
-}
-
-bool LoadShowFilters() {
-  return Load().showFilters;
-}
-
-bool SaveShowFilters(bool showFilters) {
-  Settings settings = Load();
-  settings.showFilters = showFilters;
-  return Save(settings);
-}
-
-bool LoadHotkeyEnabled() {
-  return Load().hotkeyEnabled;
-}
-
-bool SaveHotkeySettings(bool enabled, const std::wstring& hotkey) {
-  Settings settings = Load();
-  settings.hotkeyEnabled = enabled;
-  if (!hotkey.empty()) {
-    settings.hotkey = hotkey;
-  }
-  return Save(settings);
-}
-
-bool SaveLanguage(lang::Language language) {
-  Settings settings = Load();
-  settings.language = language;
-  settings.languageConfigured = true;
-  return Save(settings);
-}
-
-bool SaveFilters(const std::vector<FilterItem>& filters,
-                 const std::vector<std::wstring>& activeFilters) {
-  Settings settings = Load();
-  settings.filters = filters;
-  settings.activeFilters = activeFilters;
-  PruneActiveFilters(settings.filters, settings.activeFilters);
-  return Save(settings);
+  g_lastFileContent = bytes;
+  return true;
 }
 
 }  // namespace config

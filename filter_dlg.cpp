@@ -2,7 +2,9 @@
 
 #include "lang.h"
 #include "resource.h"
+#include "str_util.h"
 #include "theme.h"
+#include "ui_util.h"
 
 #include <commctrl.h>
 
@@ -22,29 +24,6 @@ struct DialogState {
 
 DialogState* StateFromDlg(HWND dlg) {
   return reinterpret_cast<DialogState*>(GetWindowLongPtrW(dlg, DWLP_USER));
-}
-
-void CenterDialog(HWND dlg) {
-  RECT rc = {};
-  GetWindowRect(dlg, &rc);
-  const int w = rc.right - rc.left;
-  const int h = rc.bottom - rc.top;
-
-  POINT pt = {};
-  GetCursorPos(&pt);
-  HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-  MONITORINFO mi = {};
-  mi.cbSize = sizeof(mi);
-  RECT wa = {};
-  if (GetMonitorInfoW(mon, &mi)) {
-    wa = mi.rcWork;
-  } else {
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-  }
-
-  const int x = wa.left + (wa.right - wa.left - w) / 2;
-  const int y = wa.top + (wa.bottom - wa.top - h) / 2;
-  SetWindowPos(dlg, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void LocalizeDialog(HWND dlg) {
@@ -110,18 +89,6 @@ std::wstring GetDlgText(HWND dlg, int id) {
   return text;
 }
 
-std::wstring TrimLocal(const std::wstring& s) {
-  size_t begin = 0;
-  while (begin < s.size() && iswspace(s[begin])) {
-    ++begin;
-  }
-  size_t end = s.size();
-  while (end > begin && iswspace(s[end - 1])) {
-    --end;
-  }
-  return s.substr(begin, end - begin);
-}
-
 bool NameExists(const DialogState* state, const std::wstring& name, int exceptIndex) {
   for (int i = 0; i < static_cast<int>(state->filters.size()); ++i) {
     if (i == exceptIndex) {
@@ -135,7 +102,7 @@ bool NameExists(const DialogState* state, const std::wstring& name, int exceptIn
 }
 
 bool ReadEdits(HWND dlg, DialogState* state, int exceptIndex, config::FilterItem& out) {
-  out.name = TrimLocal(GetDlgText(dlg, IDC_FILTER_NAME));
+  out.name = str::Trim(GetDlgText(dlg, IDC_FILTER_NAME));
   out.extensions = config::NormalizeExtensions(GetDlgText(dlg, IDC_FILTER_EXT));
   if (out.name.empty()) {
     MessageBoxW(dlg, lang::T(lang::Id::FiltersNameRequired), lang::T(lang::Id::FiltersDialogTitle),
@@ -169,7 +136,7 @@ INT_PTR CALLBACK FiltersDlgProc(HWND dlg, UINT msg, WPARAM wParam, LPARAM lParam
       RefreshList(dlg, state, state->filters.empty() ? -1 : 0);
       LoadSelectedIntoEdits(dlg, state);
       SetEditorEnabled(dlg, state->enabled);
-      CenterDialog(dlg);
+      ui_util::CenterOnCursorMonitor(dlg);
       return TRUE;
     }
     case WM_COMMAND: {

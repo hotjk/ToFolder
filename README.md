@@ -119,7 +119,7 @@ Tray menu changes are written back to this file.
 Requirements:
 
 - Visual Studio 2022/2026 (MSVC C++ tools)
-- Python 3 (icon generation: `pymupdf`, `pillow`)
+- Python 3 with `pymupdf`, `pillow` — only needed when an `.ico` is missing or older than its `.svg` (force with `build.bat icons`)
 
 ```bat
 pip install pymupdf pillow
@@ -148,14 +148,21 @@ main.cpp          Entry, tray messages, menus, theme refresh
 tray.cpp          Tray icon and light/dark variants
 panel.cpp         Slide-out panel, list, navigation, context menu
 watcher.cpp       Directory watch and enumeration/sort
-config.cpp        exe-named .ini read/write
+config.cpp        exe-named .ini read/write (UTF-8)
 theme.cpp         App/taskbar theme and dark menu APIs
 hotkey.cpp        Global hotkey registration and settings dialog
 filter_dlg.cpp    Filter group editor dialog
 help_dlg.cpp      Help dialog with feature overview
-lang.cpp          English / Chinese UI strings
+lang.cpp          English / Chinese UI strings (listed in lang_strings.inc)
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     High-quality icon loading
+slide_anim.cpp    Panel slide in/out animation
+clipboard.cpp     Text and file (cut/copy) clipboard helpers
+drop_source.h     IDropSource for drag-out
+path_util.cpp     Path helpers (parent, containment, extension)
+str_util.cpp      String helpers (trim, split, UTF-8)
+ui_util.cpp       Work area and dialog centering
+win_compat.h      Constants missing from older SDKs
 assets/           Bootstrap Icons SVGs and compact ICO scripts
 resource.rc       Manifest, icons, dialogs
 build.bat         One-shot build

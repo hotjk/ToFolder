@@ -2,6 +2,8 @@
 
 #include <shellscalingapi.h>
 
+#include <cstdlib>
+
 #pragma comment(lib, "shcore.lib")
 
 namespace dpi {
@@ -13,15 +15,16 @@ using GetDpiForSystemFn = UINT(WINAPI*)();
 using SystemParametersInfoForDpiFn = BOOL(WINAPI*)(UINT, UINT, PVOID, UINT, UINT);
 using GetSystemMetricsForDpiFn = int(WINAPI*)(int, UINT);
 
-HMODULE User32() {
-  return GetModuleHandleW(L"user32.dll");
+// Resolved once: these are called many times per layout pass.
+template <typename Fn>
+Fn User32Proc(const char* name) {
+  return reinterpret_cast<Fn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), name));
 }
 
 }  // namespace
 
 bool EnablePerMonitorV2() {
-  auto* setCtx = reinterpret_cast<SetDpiAwarenessContextFn>(
-      GetProcAddress(User32(), "SetProcessDpiAwarenessContext"));
+  static const auto setCtx = User32Proc<SetDpiAwarenessContextFn>("SetProcessDpiAwarenessContext");
   if (setCtx && setCtx(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
     return true;
   }
@@ -30,16 +33,16 @@ bool EnablePerMonitorV2() {
 }
 
 UINT ForWindow(HWND hwnd) {
-  auto* fn = reinterpret_cast<GetDpiForWindowFn>(GetProcAddress(User32(), "GetDpiForWindow"));
-  if (fn && hwnd) {
-    const UINT d = fn(hwnd);
+  static const auto forWindow = User32Proc<GetDpiForWindowFn>("GetDpiForWindow");
+  static const auto forSystem = User32Proc<GetDpiForSystemFn>("GetDpiForSystem");
+  if (forWindow && hwnd) {
+    const UINT d = forWindow(hwnd);
     if (d) {
       return d;
     }
   }
-  auto* sys = reinterpret_cast<GetDpiForSystemFn>(GetProcAddress(User32(), "GetDpiForSystem"));
-  if (sys) {
-    const UINT d = sys();
+  if (forSystem) {
+    const UINT d = forSystem();
     if (d) {
       return d;
     }
@@ -65,10 +68,9 @@ int Scale(int value96, UINT dpi) {
 }
 
 int TrayIconPx(UINT dpi) {
-  auto* fn =
-      reinterpret_cast<GetSystemMetricsForDpiFn>(GetProcAddress(User32(), "GetSystemMetricsForDpi"));
-  if (fn) {
-    const int cx = fn(SM_CXSMICON, dpi);
+  static const auto metricsForDpi = User32Proc<GetSystemMetricsForDpiFn>("GetSystemMetricsForDpi");
+  if (metricsForDpi) {
+    const int cx = metricsForDpi(SM_CXSMICON, dpi);
     if (cx > 0) {
       return cx;
     }
@@ -77,29 +79,18 @@ int TrayIconPx(UINT dpi) {
 }
 
 HFONT CreateUiFont(UINT dpi, config::FontSize size) {
-  // Relative to system message font (Small = current default).
-  int percent = 100;
-  switch (size) {
-    case config::FontSize::Medium:
-      percent = 125;
-      break;
-    case config::FontSize::Large:
-      percent = 150;
-      break;
-    case config::FontSize::Small:
-    default:
-      percent = 100;
-      break;
-  }
+  // Relative to the system message font (Small = current default).
+  constexpr int kPercent[] = {100, 125, 150};
+  const int percent = kPercent[config::SizeIndex(size)];
 
   NONCLIENTMETRICSW ncm = {};
   ncm.cbSize = sizeof(ncm);
 
-  auto* spiDpi = reinterpret_cast<SystemParametersInfoForDpiFn>(
-      GetProcAddress(User32(), "SystemParametersInfoForDpi"));
+  static const auto spiForDpi =
+      User32Proc<SystemParametersInfoForDpiFn>("SystemParametersInfoForDpi");
   BOOL ok = FALSE;
-  if (spiDpi) {
-    ok = spiDpi(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0, dpi);
+  if (spiForDpi) {
+    ok = spiForDpi(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0, dpi);
   }
   if (!ok) {
     ok = SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);

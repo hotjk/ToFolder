@@ -1,10 +1,8 @@
 #include "theme.h"
 
-#include <dwmapi.h>
+#include "win_compat.h"
 
-#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
-#endif
+#include <dwmapi.h>
 
 namespace theme {
 namespace {

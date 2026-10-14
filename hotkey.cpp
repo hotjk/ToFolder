@@ -1,24 +1,45 @@
 #include "hotkey.h"
 
+#include "config.h"
 #include "lang.h"
 #include "resource.h"
+#include "str_util.h"
 #include "theme.h"
+#include "ui_util.h"
+#include "win_compat.h"
 
 #include <commctrl.h>
 
 #include <string>
 #include <vector>
 
-#ifndef MOD_NOREPEAT
-#define MOD_NOREPEAT 0x4000
-#endif
-
 namespace hotkey {
 namespace {
 
-bool EqualsIgnoreCase(const std::wstring& a, const wchar_t* b) {
-  return _wcsicmp(a.c_str(), b) == 0;
-}
+struct NamedKey {
+  const wchar_t* name;  // first entry per vk is the canonical name used by Format()
+  UINT vk;
+};
+
+constexpr NamedKey kNamedKeys[] = {
+    {L"Space", VK_SPACE},     {L"Tab", VK_TAB},          {L"Esc", VK_ESCAPE},
+    {L"Escape", VK_ESCAPE},   {L"Delete", VK_DELETE},    {L"Del", VK_DELETE},
+    {L"Insert", VK_INSERT},   {L"Ins", VK_INSERT},       {L"Home", VK_HOME},
+    {L"End", VK_END},         {L"PageUp", VK_PRIOR},     {L"PgUp", VK_PRIOR},
+    {L"PageDown", VK_NEXT},   {L"PgDn", VK_NEXT},        {L"Left", VK_LEFT},
+    {L"Right", VK_RIGHT},     {L"Up", VK_UP},            {L"Down", VK_DOWN},
+};
+
+struct NamedModifier {
+  const wchar_t* name;  // first entry per flag is canonical
+  UINT flag;
+};
+
+// Order matters: Format() emits modifiers in this order.
+constexpr NamedModifier kModifiers[] = {
+    {L"Ctrl", MOD_CONTROL}, {L"Control", MOD_CONTROL}, {L"Alt", MOD_ALT},
+    {L"Shift", MOD_SHIFT},  {L"Win", MOD_WIN},         {L"Windows", MOD_WIN},
+};
 
 bool IsModifierVk(UINT vk) {
   return vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_SHIFT ||
@@ -28,131 +49,42 @@ bool IsModifierVk(UINT vk) {
 
 bool VkFromToken(const std::wstring& token, UINT& vk) {
   if (token.size() == 1) {
-    const wchar_t ch = token[0];
-    if (ch >= L'A' && ch <= L'Z') {
-      vk = static_cast<UINT>(ch);
-      return true;
-    }
-    if (ch >= L'a' && ch <= L'z') {
-      vk = static_cast<UINT>(ch - L'a' + L'A');
-      return true;
-    }
-    if (ch >= L'0' && ch <= L'9') {
+    const wchar_t ch = static_cast<wchar_t>(towupper(token[0]));
+    if ((ch >= L'A' && ch <= L'Z') || (ch >= L'0' && ch <= L'9')) {
       vk = static_cast<UINT>(ch);
       return true;
     }
   }
-  if (EqualsIgnoreCase(token, L"Space")) {
-    vk = VK_SPACE;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Tab")) {
-    vk = VK_TAB;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Esc") || EqualsIgnoreCase(token, L"Escape")) {
-    vk = VK_ESCAPE;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Delete") || EqualsIgnoreCase(token, L"Del")) {
-    vk = VK_DELETE;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Insert") || EqualsIgnoreCase(token, L"Ins")) {
-    vk = VK_INSERT;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Home")) {
-    vk = VK_HOME;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"End")) {
-    vk = VK_END;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"PageUp") || EqualsIgnoreCase(token, L"PgUp")) {
-    vk = VK_PRIOR;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"PageDown") || EqualsIgnoreCase(token, L"PgDn")) {
-    vk = VK_NEXT;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Left")) {
-    vk = VK_LEFT;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Right")) {
-    vk = VK_RIGHT;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Up")) {
-    vk = VK_UP;
-    return true;
-  }
-  if (EqualsIgnoreCase(token, L"Down")) {
-    vk = VK_DOWN;
-    return true;
-  }
-  if (token.size() >= 2 && (token[0] == L'F' || token[0] == L'f')) {
-    bool digits = true;
-    for (size_t i = 1; i < token.size(); ++i) {
-      if (token[i] < L'0' || token[i] > L'9') {
-        digits = false;
-        break;
-      }
+  for (const NamedKey& key : kNamedKeys) {
+    if (str::EqualsNoCase(token, key.name)) {
+      vk = key.vk;
+      return true;
     }
-    if (digits) {
-      const int n = _wtoi(token.c_str() + 1);
-      if (n >= 1 && n <= 12) {
-        vk = VK_F1 + static_cast<UINT>(n - 1);
-        return true;
-      }
+  }
+  if (token.size() >= 2 && towupper(token[0]) == L'F' &&
+      token.find_first_not_of(L"0123456789", 1) == std::wstring::npos) {
+    const int n = _wtoi(token.c_str() + 1);
+    if (n >= 1 && n <= 12) {
+      vk = VK_F1 + static_cast<UINT>(n - 1);
+      return true;
     }
   }
   return false;
 }
 
 std::wstring TokenFromVk(UINT vk) {
-  if (vk >= L'A' && vk <= L'Z') {
-    return std::wstring(1, static_cast<wchar_t>(vk));
-  }
-  if (vk >= L'0' && vk <= L'9') {
+  if ((vk >= L'A' && vk <= L'Z') || (vk >= L'0' && vk <= L'9')) {
     return std::wstring(1, static_cast<wchar_t>(vk));
   }
   if (vk >= VK_F1 && vk <= VK_F12) {
     return L"F" + std::to_wstring(vk - VK_F1 + 1);
   }
-  switch (vk) {
-    case VK_SPACE:
-      return L"Space";
-    case VK_TAB:
-      return L"Tab";
-    case VK_ESCAPE:
-      return L"Esc";
-    case VK_DELETE:
-      return L"Delete";
-    case VK_INSERT:
-      return L"Insert";
-    case VK_HOME:
-      return L"Home";
-    case VK_END:
-      return L"End";
-    case VK_PRIOR:
-      return L"PageUp";
-    case VK_NEXT:
-      return L"PageDown";
-    case VK_LEFT:
-      return L"Left";
-    case VK_RIGHT:
-      return L"Right";
-    case VK_UP:
-      return L"Up";
-    case VK_DOWN:
-      return L"Down";
-    default:
-      return {};
+  for (const NamedKey& key : kNamedKeys) {
+    if (key.vk == vk) {
+      return key.name;
+    }
   }
+  return {};
 }
 
 struct DialogState {
@@ -180,30 +112,6 @@ void LocalizeHotkeyDialog(HWND dlg) {
   SetDlgItemTextW(dlg, IDC_HOTKEY_HINT, lang::T(lang::Id::HotkeyHint));
   SetDlgItemTextW(dlg, IDOK, lang::T(lang::Id::HotkeyOk));
   SetDlgItemTextW(dlg, IDCANCEL, lang::T(lang::Id::HotkeyCancel));
-}
-
-// Owner is a hidden 0x0 tray window — center on the monitor under the cursor.
-void CenterDialog(HWND dlg) {
-  RECT rc = {};
-  GetWindowRect(dlg, &rc);
-  const int w = rc.right - rc.left;
-  const int h = rc.bottom - rc.top;
-
-  POINT pt = {};
-  GetCursorPos(&pt);
-  HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-  MONITORINFO mi = {};
-  mi.cbSize = sizeof(mi);
-  RECT wa = {};
-  if (GetMonitorInfoW(mon, &mi)) {
-    wa = mi.rcWork;
-  } else {
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-  }
-
-  const int x = wa.left + (wa.right - wa.left - w) / 2;
-  const int y = wa.top + (wa.bottom - wa.top - h) / 2;
-  SetWindowPos(dlg, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 LRESULT CALLBACK HotkeyEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*id*/,
@@ -241,7 +149,7 @@ INT_PTR CALLBACK HotkeyDlgProc(HWND dlg, UINT msg, WPARAM wParam, LPARAM lParam)
       UpdateHotkeyEdit(dlg, state->chord);
       HWND edit = GetDlgItem(dlg, IDC_HOTKEY_EDIT);
       SetWindowSubclass(edit, HotkeyEditProc, 1, reinterpret_cast<DWORD_PTR>(state));
-      CenterDialog(dlg);
+      ui_util::CenterOnCursorMonitor(dlg);
       SetFocus(edit);
       return FALSE;
     }
@@ -296,26 +204,7 @@ bool Parse(const std::wstring& text, Chord& out) {
     }
   }
 
-  std::vector<std::wstring> parts;
-  size_t start = 0;
-  while (start < s.size()) {
-    size_t pos = s.find(L'+', start);
-    if (pos == std::wstring::npos) {
-      pos = s.size();
-    }
-    std::wstring part = s.substr(start, pos - start);
-    while (!part.empty() && iswspace(part.front())) {
-      part.erase(part.begin());
-    }
-    while (!part.empty() && iswspace(part.back())) {
-      part.pop_back();
-    }
-    if (!part.empty()) {
-      parts.push_back(part);
-    }
-    start = pos + 1;
-  }
-
+  const std::vector<std::wstring> parts = str::SplitTrim(s, L'+');
   if (parts.empty()) {
     return false;
   }
@@ -323,20 +212,15 @@ bool Parse(const std::wstring& text, Chord& out) {
   UINT mods = 0;
   UINT vk = 0;
   for (const std::wstring& p : parts) {
-    if (EqualsIgnoreCase(p, L"Ctrl") || EqualsIgnoreCase(p, L"Control")) {
-      mods |= MOD_CONTROL;
-      continue;
+    bool isModifier = false;
+    for (const NamedModifier& mod : kModifiers) {
+      if (str::EqualsNoCase(p, mod.name)) {
+        mods |= mod.flag;
+        isModifier = true;
+        break;
+      }
     }
-    if (EqualsIgnoreCase(p, L"Alt")) {
-      mods |= MOD_ALT;
-      continue;
-    }
-    if (EqualsIgnoreCase(p, L"Shift")) {
-      mods |= MOD_SHIFT;
-      continue;
-    }
-    if (EqualsIgnoreCase(p, L"Win") || EqualsIgnoreCase(p, L"Windows")) {
-      mods |= MOD_WIN;
+    if (isModifier) {
       continue;
     }
     if (vk != 0) {
@@ -360,17 +244,13 @@ std::wstring Format(const Chord& chord) {
     return {};
   }
   std::wstring text;
-  if (chord.modifiers & MOD_CONTROL) {
-    text += L"Ctrl+";
-  }
-  if (chord.modifiers & MOD_ALT) {
-    text += L"Alt+";
-  }
-  if (chord.modifiers & MOD_SHIFT) {
-    text += L"Shift+";
-  }
-  if (chord.modifiers & MOD_WIN) {
-    text += L"Win+";
+  UINT emitted = 0;
+  for (const NamedModifier& mod : kModifiers) {
+    if ((chord.modifiers & mod.flag) && !(emitted & mod.flag)) {
+      text += mod.name;
+      text += L'+';
+      emitted |= mod.flag;
+    }
   }
   const std::wstring key = TokenFromVk(chord.vk);
   if (key.empty()) {
@@ -436,7 +316,7 @@ bool ShowSettingsDialog(HWND owner, bool& enabled, std::wstring& text) {
   state.enabled = enabled;
   state.previousEnabled = enabled;
   if (!Parse(text, state.chord) || state.chord.vk == 0) {
-    Parse(L"Ctrl+Shift+F", state.chord);
+    Parse(config::kDefaultHotkey, state.chord);
   }
   if (!Parse(text, state.previousChord)) {
     state.previousChord = state.chord;
@@ -451,7 +331,7 @@ bool ShowSettingsDialog(HWND owner, bool& enabled, std::wstring& text) {
   enabled = state.enabled;
   text = Format(state.chord);
   if (text.empty()) {
-    text = L"Ctrl+Shift+F";
+    text = config::kDefaultHotkey;
   }
   return true;
 }

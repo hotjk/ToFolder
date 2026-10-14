@@ -7,6 +7,7 @@
 #include "icon_load.h"
 #include "lang.h"
 #include "panel.h"
+#include "path_util.h"
 #include "resource.h"
 #include "theme.h"
 #include "tray.h"
@@ -23,61 +24,51 @@
 namespace {
 
 constexpr wchar_t kGitHubRepoUrl[] = L"https://github.com/hotjk/ToFolder";
+constexpr UINT_PTR kDirChangeTimerId = 1;
+// Bursts of change notifications (e.g. a file being copied) collapse into one refresh.
+constexpr UINT kDirChangeCoalesceMs = 200;
 
 HWND g_hwnd = nullptr;
+UINT g_taskbarCreatedMsg = 0;
 TrayIcon g_tray;
 PanelWindow g_panel;
 DirectoryWatcher g_watcher;
-std::wstring g_watchPath;
-config::SortMode g_sortMode = config::SortMode::ByTime;
-config::FontSize g_fontSize = config::FontSize::Small;
-config::PanelSize g_panelSize = config::PanelSize::Small;
-bool g_showHidden = false;
-bool g_expandFolders = true;
-bool g_watchEnabled = true;
-bool g_showFilters = true;
-bool g_hotkeyEnabled = false;
-std::wstring g_hotkeyText = L"Ctrl+Shift+F";
-std::vector<config::FilterItem> g_filters;
-std::vector<std::wstring> g_activeFilters;
+config::Settings g_settings;
 ULONGLONG g_panelHiddenAt = 0;
+bool g_dirChangePending = false;
+bool g_dirChangeHasAdded = false;
 
-void ApplyFiltersToPanel(bool refresh) {
-  g_panel.SetShowFilters(g_showFilters);
-  g_panel.SetFilters(g_filters);
-  g_panel.SetActiveFilters(g_activeFilters);
-  if (refresh && g_panel.IsVisible()) {
-    g_panel.Refresh();
-  }
+void SaveSettings() {
+  config::Save(g_settings);
 }
 
-void PersistFilters() {
-  g_filters = g_panel.Filters();
-  g_activeFilters = g_panel.ActiveFilters();
-  config::SaveFilters(g_filters, g_activeFilters);
+// Persists g_settings and pushes it to the panel (which refreshes itself if visible).
+void CommitSettings() {
+  SaveSettings();
+  g_panel.ApplySettings(g_settings);
+}
+
+bool HasWatchFolder() {
+  return DirectoryWatcher::PathExists(g_settings.watchPath);
 }
 
 void UpdateTrayTip() {
-  if (g_watchPath.empty()) {
+  if (g_settings.watchPath.empty()) {
     g_tray.SetTip(lang::T(lang::Id::TipNoFolder));
-  } else {
-    std::wstring tip = lang::T(lang::Id::TipPrefix);
-    tip += g_watchPath;
-    if (tip.size() > 120) {
-      tip = tip.substr(0, 117) + L"...";
-    }
-    g_tray.SetTip(tip);
+    return;
   }
+  std::wstring tip = lang::T(lang::Id::TipPrefix);
+  tip += g_settings.watchPath;
+  if (tip.size() > 120) {
+    tip = tip.substr(0, 117) + L"...";
+  }
+  g_tray.SetTip(tip);
 }
 
-void ApplyLanguage(lang::Language language, bool save) {
-  lang::Set(language);
-  if (save) {
-    config::SaveLanguage(language);
-  }
-  UpdateTrayTip();
-  if (g_panel.IsVisible()) {
-    g_panel.Refresh();
+void RestartWatcher() {
+  g_watcher.Stop();
+  if (g_settings.watchEnabled && HasWatchFolder()) {
+    g_watcher.Start(g_settings.watchPath);
   }
 }
 
@@ -116,91 +107,20 @@ bool ChooseFolder(HWND owner, std::wstring& outPath) {
   return ok;
 }
 
-void ApplyWatchPath(const std::wstring& path, bool save) {
-  g_watchPath = path;
-  if (save) {
-    config::SaveWatchPath(g_watchPath);
-  }
+void SetWatchPath(const std::wstring& path) {
+  g_settings.watchPath = path;
   g_tray.SetUnread(false);
-  g_panel.SetWatchPath(g_watchPath);
-  g_panel.SetSortMode(g_sortMode);
-  g_panel.SetShowHidden(g_showHidden);
-  g_panel.SetExpandFolders(g_expandFolders);
   UpdateTrayTip();
-  g_watcher.Stop();
-  if (g_watchEnabled && DirectoryWatcher::PathExists(g_watchPath)) {
-    g_watcher.Start(g_watchPath);
-  }
-  if (g_panel.IsVisible()) {
-    g_panel.Refresh();
-  }
+  RestartWatcher();
+  CommitSettings();
 }
 
-void ApplyWatchEnabled(bool enabled, bool save) {
-  g_watchEnabled = enabled;
-  if (save) {
-    config::SaveWatchEnabled(g_watchEnabled);
-  }
-  g_watcher.Stop();
-  if (g_watchEnabled && DirectoryWatcher::PathExists(g_watchPath)) {
-    g_watcher.Start(g_watchPath);
-  }
-  if (!g_watchEnabled) {
-    g_tray.SetUnread(false);
-  }
-}
-
-void ApplySortMode(config::SortMode mode, bool save) {
-  g_sortMode = mode;
-  g_panel.SetSortMode(g_sortMode);
-  if (save) {
-    config::SaveSortMode(g_sortMode);
-  }
-  if (g_panel.IsVisible()) {
-    g_panel.Refresh();
-  }
-}
-
-void ApplyShowHidden(bool showHidden, bool save) {
-  g_showHidden = showHidden;
-  g_panel.SetShowHidden(g_showHidden);
-  if (save) {
-    config::SaveShowHidden(g_showHidden);
-  }
-  if (g_panel.IsVisible()) {
-    g_panel.Refresh();
-  }
-}
-
-void ApplyExpandFolders(bool expandFolders, bool save) {
-  g_expandFolders = expandFolders;
-  g_panel.SetExpandFolders(g_expandFolders);
-  if (save) {
-    config::SaveExpandFolders(g_expandFolders);
-  }
-  if (g_panel.IsVisible()) {
-    g_panel.Refresh();
-  }
-}
-
-void ApplyFontSize(config::FontSize size, bool save) {
-  g_fontSize = size;
-  g_panel.SetFontSize(g_fontSize);
-  if (save) {
-    config::SaveFontSize(g_fontSize);
-  }
-}
-
-void ApplyPanelSize(config::PanelSize size, bool save) {
-  g_panelSize = size;
-  g_panel.SetPanelSize(g_panelSize);
-  if (save) {
-    config::SavePanelSize(g_panelSize);
-  }
-}
-
-bool HasWatchFolder() {
-  return DirectoryWatcher::PathExists(g_watchPath);
+void SetLanguage(lang::Language language) {
+  lang::Set(language);
+  g_settings.language = language;
+  g_settings.languageConfigured = true;
+  UpdateTrayTip();
+  CommitSettings();
 }
 
 void ShowPanel() {
@@ -221,140 +141,154 @@ void HidePanel() {
   g_panelHiddenAt = GetTickCount64();
 }
 
+// ---------------------------------------------------------------------------
+// Start with Windows (HKCU Run). The value name embeds the exe path hash so renamed
+// copies, which run as separate instances, each keep their own entry.
+
 constexpr wchar_t kRunKeyPath[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-constexpr wchar_t kRunValueName[] = L"ToFolder";
+constexpr wchar_t kLegacyRunValueName[] = L"ToFolder";
+
+std::wstring RunValueName() {
+  return L"ToFolder_" + config::GetExePathHash();
+}
+
+std::wstring QuotedExePath() {
+  return L"\"" + config::GetExePath() + L"\"";
+}
+
+bool ReadRunValue(HKEY key, const wchar_t* name, std::wstring& out) {
+  wchar_t buf[2048] = {};
+  DWORD type = 0;
+  DWORD size = sizeof(buf) - sizeof(wchar_t);
+  if (RegQueryValueExW(key, name, nullptr, &type, reinterpret_cast<LPBYTE>(buf), &size) !=
+          ERROR_SUCCESS ||
+      type != REG_SZ) {
+    return false;
+  }
+  out = buf;
+  return true;
+}
+
+// Older builds registered every copy under one shared name; only treat it as ours if it
+// points at this exe.
+bool LegacyRunValueIsOurs(HKEY key) {
+  std::wstring value;
+  return ReadRunValue(key, kLegacyRunValueName, value) &&
+         path_util::EqualsNoCase(value, QuotedExePath());
+}
 
 bool IsStartWithWindows() {
   HKEY key = nullptr;
   if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_READ, &key) != ERROR_SUCCESS) {
     return false;
   }
-  wchar_t buf[MAX_PATH + 4] = {};
-  DWORD type = 0;
-  DWORD size = sizeof(buf);
-  const LSTATUS st =
-      RegQueryValueExW(key, kRunValueName, nullptr, &type, reinterpret_cast<LPBYTE>(buf), &size);
+  std::wstring value;
+  const bool enabled = (ReadRunValue(key, RunValueName().c_str(), value) && !value.empty()) ||
+                       LegacyRunValueIsOurs(key);
   RegCloseKey(key);
-  return st == ERROR_SUCCESS && type == REG_SZ && buf[0] != L'\0';
+  return enabled;
 }
 
 bool SetStartWithWindows(bool enable) {
   HKEY key = nullptr;
-  if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) {
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_QUERY_VALUE | KEY_SET_VALUE, &key) !=
+      ERROR_SUCCESS) {
     return false;
   }
+  if (LegacyRunValueIsOurs(key)) {
+    RegDeleteValueW(key, kLegacyRunValueName);
+  }
+  const std::wstring name = RunValueName();
   bool ok = false;
   if (enable) {
-    wchar_t exePath[MAX_PATH] = {};
-    const DWORD n = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    if (n > 0 && n < MAX_PATH) {
-      std::wstring value = L"\"";
-      value += exePath;
-      value += L"\"";
-      ok = RegSetValueExW(key, kRunValueName, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
-                          static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
-    }
+    const std::wstring value = QuotedExePath();
+    ok = RegSetValueExW(key, name.c_str(), 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
+                        static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
   } else {
-    const LSTATUS st = RegDeleteValueW(key, kRunValueName);
+    const LSTATUS st = RegDeleteValueW(key, name.c_str());
     ok = (st == ERROR_SUCCESS || st == ERROR_FILE_NOT_FOUND);
   }
   RegCloseKey(key);
   return ok;
 }
 
-void ShowContextMenu(HWND hwnd) {
-  POINT pt = {};
-  GetCursorPos(&pt);
-  HMENU menu = CreatePopupMenu();
-  AppendMenuW(menu, MF_STRING, IDM_OPEN_PANEL, lang::T(lang::Id::MenuOpenPanel));
-  AppendMenuW(menu, MF_STRING, IDM_OPEN_FOLDER, lang::T(lang::Id::MenuOpenFolder));
-  if (!HasWatchFolder()) {
-    EnableMenuItem(menu, IDM_OPEN_PANEL, MF_BYCOMMAND | MF_GRAYED);
-    EnableMenuItem(menu, IDM_OPEN_FOLDER, MF_BYCOMMAND | MF_GRAYED);
+// ---------------------------------------------------------------------------
+// Tray menu
+
+void AppendItem(HMENU menu, UINT id, lang::Id text, bool checked = false, bool enabled = true) {
+  UINT flags = MF_STRING;
+  flags |= checked ? MF_CHECKED : MF_UNCHECKED;
+  flags |= enabled ? MF_ENABLED : MF_GRAYED;
+  AppendMenuW(menu, flags, id, lang::T(text));
+}
+
+void AppendSeparator(HMENU menu) {
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+}
+
+HMENU AppendSubmenu(HMENU menu, lang::Id text) {
+  HMENU sub = CreatePopupMenu();
+  AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(sub), lang::T(text));
+  return sub;
+}
+
+// Small / Medium / Large submenu whose command ids are consecutive from firstId.
+void AppendSizeSubmenu(HMENU menu, lang::Id title, UINT firstId, const lang::Id (&labels)[3],
+                       int currentIndex) {
+  HMENU sub = AppendSubmenu(menu, title);
+  for (int i = 0; i < 3; ++i) {
+    AppendItem(sub, firstId + i, labels[i], i == currentIndex);
   }
-  AppendMenuW(menu, MF_STRING, IDM_CHOOSE_FOLDER, lang::T(lang::Id::MenuChooseFolder));
-  AppendMenuW(
-      menu,
-      MF_STRING | (g_watchEnabled ? MF_CHECKED : MF_UNCHECKED),
-      IDM_WATCH_ENABLED,
-      lang::T(lang::Id::MenuWatchNewFiles));
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(
-      menu,
-      MF_STRING | (g_sortMode == config::SortMode::ByTime ? MF_CHECKED : MF_UNCHECKED),
-      IDM_SORT_TIME,
-      lang::T(lang::Id::MenuSortByTime));
-  AppendMenuW(
-      menu,
-      MF_STRING | (g_sortMode == config::SortMode::ByName ? MF_CHECKED : MF_UNCHECKED),
-      IDM_SORT_NAME,
-      lang::T(lang::Id::MenuSortByName));
-  AppendMenuW(
-      menu,
-      MF_STRING | (g_showHidden ? MF_CHECKED : MF_UNCHECKED),
-      IDM_SHOW_HIDDEN,
-      lang::T(lang::Id::MenuShowHidden));
-  AppendMenuW(
-      menu,
-      MF_STRING | (g_expandFolders ? MF_CHECKED : MF_UNCHECKED),
-      IDM_EXPAND_FOLDERS,
-      lang::T(lang::Id::MenuExpandFolders));
-  AppendMenuW(
-      menu,
-      MF_STRING | (IsStartWithWindows() ? MF_CHECKED : MF_UNCHECKED),
-      IDM_START_WITH_WINDOWS,
-      lang::T(lang::Id::MenuStartWithWindows));
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+}
 
-  HMENU langMenu = CreatePopupMenu();
-  const bool langEn = lang::Current() == lang::Language::English;
-  AppendMenuW(langMenu, MF_STRING | (langEn ? MF_CHECKED : MF_UNCHECKED), IDM_LANG_EN,
-              lang::T(lang::Id::MenuLangEnglish));
-  AppendMenuW(langMenu, MF_STRING | (!langEn ? MF_CHECKED : MF_UNCHECKED), IDM_LANG_ZH,
-              lang::T(lang::Id::MenuLangChinese));
-  AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(langMenu), lang::T(lang::Id::MenuLanguage));
+HMENU BuildTrayMenu() {
+  const bool hasFolder = HasWatchFolder();
+  HMENU menu = CreatePopupMenu();
+  AppendItem(menu, IDM_OPEN_PANEL, lang::Id::MenuOpenPanel, false, hasFolder);
+  AppendItem(menu, IDM_OPEN_FOLDER, lang::Id::MenuOpenFolder, false, hasFolder);
+  AppendItem(menu, IDM_CHOOSE_FOLDER, lang::Id::MenuChooseFolder);
+  AppendItem(menu, IDM_WATCH_ENABLED, lang::Id::MenuWatchNewFiles, g_settings.watchEnabled);
+  AppendSeparator(menu);
+  AppendItem(menu, IDM_SORT_TIME, lang::Id::MenuSortByTime,
+             g_settings.sortMode == config::SortMode::ByTime);
+  AppendItem(menu, IDM_SORT_NAME, lang::Id::MenuSortByName,
+             g_settings.sortMode == config::SortMode::ByName);
+  AppendItem(menu, IDM_SHOW_HIDDEN, lang::Id::MenuShowHidden, g_settings.showHidden);
+  AppendItem(menu, IDM_EXPAND_FOLDERS, lang::Id::MenuExpandFolders, g_settings.expandFolders);
+  AppendItem(menu, IDM_START_WITH_WINDOWS, lang::Id::MenuStartWithWindows, IsStartWithWindows());
+  AppendSeparator(menu);
 
-  HMENU fontMenu = CreatePopupMenu();
-  AppendMenuW(fontMenu,
-              MF_STRING | (g_fontSize == config::FontSize::Small ? MF_CHECKED : MF_UNCHECKED),
-              IDM_FONT_SMALL, lang::T(lang::Id::MenuFontSmall));
-  AppendMenuW(fontMenu,
-              MF_STRING | (g_fontSize == config::FontSize::Medium ? MF_CHECKED : MF_UNCHECKED),
-              IDM_FONT_MEDIUM, lang::T(lang::Id::MenuFontMedium));
-  AppendMenuW(fontMenu,
-              MF_STRING | (g_fontSize == config::FontSize::Large ? MF_CHECKED : MF_UNCHECKED),
-              IDM_FONT_LARGE, lang::T(lang::Id::MenuFontLarge));
-  AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(fontMenu), lang::T(lang::Id::MenuFontSize));
+  HMENU langMenu = AppendSubmenu(menu, lang::Id::MenuLanguage);
+  const bool zh = lang::Current() == lang::Language::Chinese;
+  AppendItem(langMenu, IDM_LANG_EN, lang::Id::MenuLangEnglish, !zh);
+  AppendItem(langMenu, IDM_LANG_ZH, lang::Id::MenuLangChinese, zh);
 
-  HMENU panelSizeMenu = CreatePopupMenu();
-  AppendMenuW(
-      panelSizeMenu,
-      MF_STRING | (g_panelSize == config::PanelSize::Small ? MF_CHECKED : MF_UNCHECKED),
-      IDM_PANEL_SMALL, lang::T(lang::Id::MenuPanelSmall));
-  AppendMenuW(
-      panelSizeMenu,
-      MF_STRING | (g_panelSize == config::PanelSize::Medium ? MF_CHECKED : MF_UNCHECKED),
-      IDM_PANEL_MEDIUM, lang::T(lang::Id::MenuPanelMedium));
-  AppendMenuW(
-      panelSizeMenu,
-      MF_STRING | (g_panelSize == config::PanelSize::Large ? MF_CHECKED : MF_UNCHECKED),
-      IDM_PANEL_LARGE, lang::T(lang::Id::MenuPanelLarge));
-  AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(panelSizeMenu),
-              lang::T(lang::Id::MenuPanelSize));
+  AppendSizeSubmenu(menu, lang::Id::MenuFontSize, IDM_FONT_SMALL,
+                    {lang::Id::MenuFontSmall, lang::Id::MenuFontMedium, lang::Id::MenuFontLarge},
+                    config::SizeIndex(g_settings.fontSize));
+  AppendSizeSubmenu(menu, lang::Id::MenuPanelSize, IDM_PANEL_SMALL,
+                    {lang::Id::MenuPanelSmall, lang::Id::MenuPanelMedium, lang::Id::MenuPanelLarge},
+                    config::SizeIndex(g_settings.panelSize));
 
-  AppendMenuW(menu, MF_STRING, IDM_HOTKEY, lang::T(lang::Id::MenuHotkey));
-  AppendMenuW(menu, MF_STRING, IDM_FILTERS, lang::T(lang::Id::MenuFilters));
-  AppendMenuW(menu, MF_STRING, IDM_HELP, lang::T(lang::Id::MenuHelp));
-  AppendMenuW(menu, MF_STRING, IDM_ABOUT, lang::T(lang::Id::MenuAbout));
-  AppendMenuW(menu, MF_STRING, IDM_EXIT, lang::T(lang::Id::MenuExit));
+  AppendItem(menu, IDM_HOTKEY, lang::Id::MenuHotkey);
+  AppendItem(menu, IDM_FILTERS, lang::Id::MenuFilters);
+  AppendItem(menu, IDM_HELP, lang::Id::MenuHelp);
+  AppendItem(menu, IDM_ABOUT, lang::Id::MenuAbout);
+  AppendItem(menu, IDM_EXIT, lang::Id::MenuExit);
+  return menu;
+}
 
-  theme::PreparePopupMenu(hwnd);
-  SetForegroundWindow(hwnd);
-  const UINT cmd =
-      TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd,
-                     nullptr);
-  DestroyMenu(menu);
-  PostMessageW(hwnd, WM_NULL, 0, 0);
+void OnTrayCommand(HWND hwnd, UINT cmd) {
+  if (cmd >= IDM_FONT_SMALL && cmd <= IDM_FONT_LARGE) {
+    g_settings.fontSize = static_cast<config::FontSize>(cmd - IDM_FONT_SMALL);
+    CommitSettings();
+    return;
+  }
+  if (cmd >= IDM_PANEL_SMALL && cmd <= IDM_PANEL_LARGE) {
+    g_settings.panelSize = static_cast<config::PanelSize>(cmd - IDM_PANEL_SMALL);
+    CommitSettings();
+    return;
+  }
 
   switch (cmd) {
     case IDM_OPEN_PANEL:
@@ -364,30 +298,38 @@ void ShowContextMenu(HWND hwnd) {
       break;
     case IDM_OPEN_FOLDER:
       if (HasWatchFolder()) {
-        ShellExecuteW(hwnd, L"open", g_watchPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        ShellExecuteW(hwnd, L"open", g_settings.watchPath.c_str(), nullptr, nullptr,
+                      SW_SHOWNORMAL);
       }
       break;
     case IDM_CHOOSE_FOLDER: {
       std::wstring path;
       if (ChooseFolder(hwnd, path)) {
-        ApplyWatchPath(path, true);
+        SetWatchPath(path);
       }
       break;
     }
     case IDM_WATCH_ENABLED:
-      ApplyWatchEnabled(!g_watchEnabled, true);
+      g_settings.watchEnabled = !g_settings.watchEnabled;
+      SaveSettings();
+      RestartWatcher();
+      if (!g_settings.watchEnabled) {
+        g_tray.SetUnread(false);
+      }
       break;
     case IDM_SORT_TIME:
-      ApplySortMode(config::SortMode::ByTime, true);
-      break;
     case IDM_SORT_NAME:
-      ApplySortMode(config::SortMode::ByName, true);
+      g_settings.sortMode =
+          cmd == IDM_SORT_NAME ? config::SortMode::ByName : config::SortMode::ByTime;
+      CommitSettings();
       break;
     case IDM_SHOW_HIDDEN:
-      ApplyShowHidden(!g_showHidden, true);
+      g_settings.showHidden = !g_settings.showHidden;
+      CommitSettings();
       break;
     case IDM_EXPAND_FOLDERS:
-      ApplyExpandFolders(!g_expandFolders, true);
+      g_settings.expandFolders = !g_settings.expandFolders;
+      CommitSettings();
       break;
     case IDM_START_WITH_WINDOWS:
       if (!SetStartWithWindows(!IsStartWithWindows())) {
@@ -396,52 +338,31 @@ void ShowContextMenu(HWND hwnd) {
       }
       break;
     case IDM_LANG_EN:
-      ApplyLanguage(lang::Language::English, true);
+      SetLanguage(lang::Language::English);
       break;
     case IDM_LANG_ZH:
-      ApplyLanguage(lang::Language::Chinese, true);
-      break;
-    case IDM_FONT_SMALL:
-      ApplyFontSize(config::FontSize::Small, true);
-      break;
-    case IDM_FONT_MEDIUM:
-      ApplyFontSize(config::FontSize::Medium, true);
-      break;
-    case IDM_FONT_LARGE:
-      ApplyFontSize(config::FontSize::Large, true);
-      break;
-    case IDM_PANEL_SMALL:
-      ApplyPanelSize(config::PanelSize::Small, true);
-      break;
-    case IDM_PANEL_MEDIUM:
-      ApplyPanelSize(config::PanelSize::Medium, true);
-      break;
-    case IDM_PANEL_LARGE:
-      ApplyPanelSize(config::PanelSize::Large, true);
+      SetLanguage(lang::Language::Chinese);
       break;
     case IDM_HOTKEY: {
-      bool enabled = g_hotkeyEnabled;
-      std::wstring text = g_hotkeyText;
+      bool enabled = g_settings.hotkeyEnabled;
+      std::wstring text = g_settings.hotkey;
+      // The dialog registers the chosen hotkey itself (and restores the old one on conflict).
       if (hotkey::ShowSettingsDialog(hwnd, enabled, text)) {
-        g_hotkeyEnabled = enabled;
-        g_hotkeyText = text;
-        config::SaveHotkeySettings(g_hotkeyEnabled, g_hotkeyText);
-        // Dialog already registered via Apply; keep state in sync.
-        hotkey::Apply(hwnd, g_hotkeyEnabled, g_hotkeyText);
+        g_settings.hotkeyEnabled = enabled;
+        g_settings.hotkey = text;
+        SaveSettings();
       }
       break;
     }
     case IDM_FILTERS: {
-      bool enabled = g_showFilters;
-      auto filters = g_filters;
-      auto active = g_activeFilters;
+      bool enabled = g_settings.showFilters;
+      auto filters = g_settings.filters;
+      auto active = g_settings.activeFilters;
       if (filter_dlg::ShowFiltersDialog(hwnd, enabled, filters, active)) {
-        g_showFilters = enabled;
-        g_filters = std::move(filters);
-        g_activeFilters = std::move(active);
-        config::SaveShowFilters(g_showFilters);
-        config::SaveFilters(g_filters, g_activeFilters);
-        ApplyFiltersToPanel(true);
+        g_settings.showFilters = enabled;
+        g_settings.filters = std::move(filters);
+        g_settings.activeFilters = std::move(active);
+        CommitSettings();
       }
       break;
     }
@@ -449,9 +370,9 @@ void ShowContextMenu(HWND hwnd) {
       help_dlg::ShowHelpDialog(hwnd);
       break;
     case IDM_ABOUT: {
-      const int choice = MessageBoxW(hwnd, lang::T(lang::Id::AboutBody),
-                                     lang::T(lang::Id::AboutTitle),
-                                     MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1);
+      const int choice =
+          MessageBoxW(hwnd, lang::T(lang::Id::AboutBody), lang::T(lang::Id::AboutTitle),
+                      MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1);
       if (choice == IDYES) {
         ShellExecuteW(hwnd, L"open", kGitHubRepoUrl, nullptr, nullptr, SW_SHOWNORMAL);
       }
@@ -461,6 +382,19 @@ void ShowContextMenu(HWND hwnd) {
       DestroyWindow(hwnd);
       break;
   }
+}
+
+void ShowContextMenu(HWND hwnd) {
+  POINT pt = {};
+  GetCursorPos(&pt);
+  HMENU menu = BuildTrayMenu();
+  theme::PreparePopupMenu(hwnd);
+  SetForegroundWindow(hwnd);
+  const UINT cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, pt.x,
+                                  pt.y, 0, hwnd, nullptr);
+  DestroyMenu(menu);
+  PostMessageW(hwnd, WM_NULL, 0, 0);
+  OnTrayCommand(hwnd, cmd);
 }
 
 void OnTrayLeftClick() {
@@ -475,7 +409,7 @@ void OnTrayLeftClick() {
   if (!HasWatchFolder()) {
     std::wstring path;
     if (ChooseFolder(g_hwnd, path)) {
-      ApplyWatchPath(path, true);
+      SetWatchPath(path);
       ShowPanel();
     }
     return;
@@ -483,11 +417,25 @@ void OnTrayLeftClick() {
   ShowPanel();
 }
 
-LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-  switch (msg) {
-    case WM_CREATE:
-      return 0;
+void FlushDirChange() {
+  KillTimer(g_hwnd, kDirChangeTimerId);
+  g_dirChangePending = false;
+  if (g_panel.IsVisible()) {
+    g_panel.Refresh();
+  } else if (g_dirChangeHasAdded) {
+    g_tray.SetUnread(true);
+  }
+  g_dirChangeHasAdded = false;
+}
 
+LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+  if (msg == g_taskbarCreatedMsg && g_taskbarCreatedMsg != 0) {
+    g_tray.Recreate();
+    UpdateTrayTip();
+    return 0;
+  }
+
+  switch (msg) {
     case WM_TRAYICON: {
       const UINT notify = LOWORD(lParam);
       if (notify == NIN_SELECT || notify == NIN_KEYSELECT) {
@@ -499,24 +447,28 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
     }
 
     case WM_REQUEST_HIDE:
-      if (g_panel.IsVisible()) {
-        HidePanel();
-      }
+      HidePanel();
       return 0;
 
     case WM_FILTERS_CHANGED:
-      PersistFilters();
+      g_settings.activeFilters = g_panel.ActiveFilters();
+      SaveSettings();
       return 0;
 
-    case WM_DIR_CHANGED: {
-      const bool hasAdded = wParam != 0;
-      if (g_panel.IsVisible()) {
-        g_panel.Refresh();
-      } else if (hasAdded) {
-        g_tray.SetUnread(true);
+    case WM_DIR_CHANGED:
+      // Throttle rather than debounce so a continuous stream still refreshes periodically.
+      g_dirChangeHasAdded = g_dirChangeHasAdded || wParam != 0;
+      if (!g_dirChangePending) {
+        g_dirChangePending = true;
+        SetTimer(hwnd, kDirChangeTimerId, kDirChangeCoalesceMs, nullptr);
       }
       return 0;
-    }
+
+    case WM_TIMER:
+      if (wParam == kDirChangeTimerId) {
+        FlushDirChange();
+      }
+      return 0;
 
     case WM_HOTKEY:
       if (static_cast<int>(wParam) == hotkey::kHotkeyId) {
@@ -535,6 +487,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
       return 0;
 
     case WM_DESTROY:
+      KillTimer(hwnd, kDirChangeTimerId);
       hotkey::Unregister(hwnd);
       g_watcher.Stop();
       g_tray.Remove();
@@ -587,6 +540,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   wc.lpszClassName = L"ToFolderHiddenClass";
   RegisterClassExW(&wc);
 
+  g_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
   g_hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"ToFolderHiddenClass", L"ToFolder", WS_POPUP, 0, 0, 0,
                            0, nullptr, nullptr, hInstance, nullptr);
   if (!g_hwnd) {
@@ -594,41 +548,23 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   }
   theme::AllowDarkForWindow(g_hwnd, !theme::AppsUseLightTheme());
 
+  g_settings = config::Load();
+  if (!g_settings.languageConfigured) {
+    // First launch: follow OS UI language, then persist (default English otherwise).
+    g_settings.language = lang::DetectOs();
+    g_settings.languageConfigured = true;
+  }
+  lang::Set(g_settings.language);
+
   g_watcher.SetCallback(OnDirChanged);
   g_panel.Create(g_hwnd);
   g_tray.Add(g_hwnd, WM_TRAYICON);
-
-  const config::Settings settings = config::Load();
-  g_sortMode = settings.sortMode;
-  g_fontSize = settings.fontSize;
-  g_panelSize = settings.panelSize;
-  g_showHidden = settings.showHidden;
-  g_expandFolders = settings.expandFolders;
-  g_watchEnabled = settings.watchEnabled;
-  g_showFilters = settings.showFilters;
-  g_hotkeyEnabled = settings.hotkeyEnabled;
-  g_hotkeyText = settings.hotkey.empty() ? L"Ctrl+Shift+F" : settings.hotkey;
-  g_filters = settings.filters;
-  g_activeFilters = settings.activeFilters;
-  if (settings.languageConfigured) {
-    lang::Set(settings.language);
-  } else {
-    // First launch: follow OS UI language, then persist (default English otherwise).
-    ApplyLanguage(lang::DetectOs(), true);
-  }
-  g_panel.SetSortMode(g_sortMode);
-  g_panel.SetFontSize(g_fontSize);
-  g_panel.SetPanelSize(g_panelSize);
-  g_panel.SetShowHidden(g_showHidden);
-  g_panel.SetExpandFolders(g_expandFolders);
-  ApplyFiltersToPanel(false);
-  ApplyWatchPath(settings.watchPath, false);
-  // Persist default filters into the exe-named .ini when the file had none yet.
-  config::SaveFilters(g_filters, g_activeFilters);
-  if (!hotkey::Apply(g_hwnd, g_hotkeyEnabled, g_hotkeyText) && g_hotkeyEnabled) {
-    // Keep running without the hotkey if it conflicts at startup.
-    g_hotkeyEnabled = false;
-  }
+  UpdateTrayTip();
+  RestartWatcher();
+  // Also writes defaults (e.g. filters) into the exe-named .ini when they were missing.
+  CommitSettings();
+  // Keep running without the hotkey if it conflicts at startup.
+  hotkey::Apply(g_hwnd, g_settings.hotkeyEnabled, g_settings.hotkey);
 
   MSG msg = {};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

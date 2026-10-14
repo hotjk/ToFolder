@@ -25,11 +25,22 @@ if errorlevel 1 (
 
 if not exist "out" mkdir out
 
-echo Generating multi-size icons ...
-python assets\gen_icons.py
-if errorlevel 1 (
-  echo [ERROR] Icon generation failed. Python + pymupdf + pillow required.
-  exit /b 1
+rem Regenerate .ico only when one is missing or older than its .svg (or with "build.bat icons").
+set "NEED_ICONS="
+if /i "%~1"=="icons" set "NEED_ICONS=1"
+if not defined NEED_ICONS (
+  powershell -NoProfile -Command "$stale = Get-ChildItem assets\*.svg | Where-Object { $ico = [IO.Path]::ChangeExtension($_.FullName, '.ico'); -not (Test-Path $ico) -or (Get-Item $ico).LastWriteTime -lt $_.LastWriteTime }; if ($stale) { exit 1 }"
+  if errorlevel 1 set "NEED_ICONS=1"
+)
+if defined NEED_ICONS (
+  echo Generating multi-size icons ...
+  python assets\gen_icons.py
+  if errorlevel 1 (
+    echo [ERROR] Icon generation failed. Python + pymupdf + pillow required.
+    exit /b 1
+  )
+) else (
+  echo Icons up to date, skipping generation.
 )
 
 echo Compiling resources ...
@@ -40,12 +51,13 @@ if errorlevel 1 (
 )
 
 echo Building ToFolder.exe ...
-cl /nologo /EHsc /std:c++17 /utf-8 /O2 /W3 /DUNICODE /D_UNICODE ^
+cl /nologo /EHsc /std:c++17 /utf-8 /permissive- /O2 /GL /Gy /W4 /DUNICODE /D_UNICODE ^
   /Fe:out\ToFolder.exe ^
   /Fo:out\ ^
   main.cpp config.cpp watcher.cpp tray.cpp panel.cpp dpi.cpp icon_load.cpp theme.cpp hotkey.cpp filter_dlg.cpp help_dlg.cpp lang.cpp ^
+  str_util.cpp ui_util.cpp path_util.cpp clipboard.cpp slide_anim.cpp ^
   out\resource.res ^
-  /link /SUBSYSTEM:WINDOWS /MANIFEST:NO ^
+  /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /LTCG /OPT:REF /OPT:ICF ^
   user32.lib gdi32.lib shell32.lib ole32.lib comdlg32.lib comctl32.lib advapi32.lib shcore.lib dwmapi.lib uxtheme.lib
 
 if errorlevel 1 (
@@ -59,8 +71,11 @@ copy /Y assets\folder2-open.ico out\folder2-open.ico >nul
 copy /Y assets\folder-fill.ico out\folder-fill.ico >nul
 
 echo.
-echo Verifying icons embedded in EXE ...
-python assets\verify_exe_icons.py out\ToFolder.exe
+where python >nul 2>&1
+if not errorlevel 1 (
+  echo Verifying icons embedded in EXE ...
+  python assets\verify_exe_icons.py out\ToFolder.exe
+)
 
 echo Refreshing shell icon cache ...
 ie4uinit.exe -show >nul 2>&1

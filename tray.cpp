@@ -3,12 +3,9 @@
 #include "icon_load.h"
 #include "resource.h"
 #include "theme.h"
+#include "win_compat.h"
 
 #include <shellapi.h>
-
-#ifndef NIF_SHOWTIP
-#define NIF_SHOWTIP 0x00000080
-#endif
 
 namespace {
 
@@ -106,6 +103,15 @@ bool TrayIcon::Add(HWND hwnd, UINT callbackMessage) {
     Shell_NotifyIconW(NIM_SETVERSION, &nid_);
   }
   return added_;
+}
+
+bool TrayIcon::Recreate() {
+  if (!hwnd_) {
+    return false;
+  }
+  // The old icon died with the previous Explorer instance; NIM_DELETE would fail.
+  added_ = false;
+  return Add(hwnd_, callbackMessage_);
 }
 
 void TrayIcon::Remove() {

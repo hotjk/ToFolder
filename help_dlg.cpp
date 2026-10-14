@@ -3,32 +3,10 @@
 #include "lang.h"
 #include "resource.h"
 #include "theme.h"
+#include "ui_util.h"
 
 namespace help_dlg {
 namespace {
-
-void CenterDialog(HWND dlg) {
-  RECT rc = {};
-  GetWindowRect(dlg, &rc);
-  const int w = rc.right - rc.left;
-  const int h = rc.bottom - rc.top;
-
-  POINT pt = {};
-  GetCursorPos(&pt);
-  HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-  MONITORINFO mi = {};
-  mi.cbSize = sizeof(mi);
-  RECT wa = {};
-  if (GetMonitorInfoW(mon, &mi)) {
-    wa = mi.rcWork;
-  } else {
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-  }
-
-  const int x = wa.left + (wa.right - wa.left - w) / 2;
-  const int y = wa.top + (wa.bottom - wa.top - h) / 2;
-  SetWindowPos(dlg, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-}
 
 INT_PTR CALLBACK HelpDlgProc(HWND dlg, UINT msg, WPARAM wParam, LPARAM /*lParam*/) {
   switch (msg) {
@@ -40,7 +18,7 @@ INT_PTR CALLBACK HelpDlgProc(HWND dlg, UINT msg, WPARAM wParam, LPARAM /*lParam*
       // Prefer top of text for long help.
       SendDlgItemMessageW(dlg, IDC_HELP_BODY, EM_SETSEL, 0, 0);
       SendDlgItemMessageW(dlg, IDC_HELP_BODY, EM_SCROLLCARET, 0, 0);
-      CenterDialog(dlg);
+      ui_util::CenterOnCursorMonitor(dlg);
       return TRUE;
     }
     case WM_COMMAND: {

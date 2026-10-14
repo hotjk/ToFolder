@@ -13,6 +13,8 @@ class TrayIcon {
   TrayIcon& operator=(const TrayIcon&) = delete;
 
   bool Add(HWND hwnd, UINT callbackMessage);
+  // Re-adds the icon after Explorer restarts (on the "TaskbarCreated" message).
+  bool Recreate();
   void Remove();
   void SetTip(const std::wstring& tip);
   void SetUnread(bool unread);

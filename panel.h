@@ -1,11 +1,15 @@
 #pragma once
 
 #include "config.h"
+#include "lang.h"
 #include "watcher.h"
 
 #include <windows.h>
 
+#include <commctrl.h>
+
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class PanelWindow {
@@ -22,74 +26,51 @@ class PanelWindow {
   bool IsVisible() const;
   void Show();
   void Hide();
-  void Toggle();
-  void SetWatchPath(const std::wstring& path);
-  void SetSortMode(config::SortMode mode);
-  config::SortMode SortMode() const { return sortMode_; }
-  void SetShowHidden(bool showHidden);
-  bool ShowHidden() const { return showHidden_; }
-  void SetExpandFolders(bool expandFolders);
-  bool ExpandFolders() const { return expandFolders_; }
-  void SetFontSize(config::FontSize size);
-  config::FontSize FontSize() const { return fontSize_; }
-  void SetPanelSize(config::PanelSize size);
-  config::PanelSize PanelSize() const { return panelSize_; }
-  void SetShowFilters(bool showFilters);
-  bool ShowFilters() const { return showFilters_; }
-  void SetFilters(const std::vector<config::FilterItem>& filters);
-  void SetActiveFilters(const std::vector<std::wstring>& activeFilters);
-  const std::vector<config::FilterItem>& Filters() const { return filters_; }
-  const std::vector<std::wstring>& ActiveFilters() const { return activeFilters_; }
+  // Takes the display-related fields of `settings`; refreshes the list if visible.
+  void ApplySettings(const config::Settings& settings);
+  // Chip toggles change these; the owner is told via WM_FILTERS_CHANGED.
+  const std::vector<std::wstring>& ActiveFilters() const { return settings_.activeFilters; }
   bool IsPinned() const { return pinned_; }
   void Refresh();
   void RefreshTheme();
-  bool ContainsPoint(POINT pt) const;
 
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
   LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
-  void Layout();
-  void UpdateColumnWidth();
-  void PopulateList();
-  void OpenAt(int index);
-  void OpenLocationAt(int index);
-  bool CopyItemAt(int index);
-  bool CutItemAt(int index);
-  bool CopyItemNameAt(int index);
-  bool CopyItemPathAt(int index);
-  bool DeleteAt(int index);
-  void ShowItemContextMenu(int index, POINT screenPt);
-  void BeginDragAt(int index);
+  bool OnNotify(const NMHDR* nmhdr, LRESULT* result);
+  void OnGetDispInfo(NMLVDISPINFOW* di) const;
+  void OnGetInfoTip(NMLVGETINFOTIPW* tip) const;
+  bool OnContextMenu(HWND source, POINT screenPt);
+  bool HandleNavigationKey(UINT vk);
+
+  // Window / child setup
   void EnsureList();
   void EnsureListIcons();
   void EnsureFont();
-  void EnsureSelection();
   void EnsureTooltip();
   void EnsureListInfoTipTopMost();
   void UpdatePinTooltip();
   void ApplyTheme();
-  void NavigateTo(const std::wstring& path);
-  void NavigateUp();
+
+  // Layout and metrics
+  void Layout();
+  void UpdateColumnWidth();
   void ApplyVisibleSize(bool allowShrink);
-  bool IsAtWatchRoot() const;
-  bool IsParentRow(int index) const;
-  std::wstring ParentPath(const std::wstring& path) const;
-  bool IsPathUnderWatch(const std::wstring& path) const;
-  RECT WorkAreaRect() const;
+  void EnsureSelection();
   UINT CurrentDpi() const;
+  int Px(int value96) const;
   int PanelWidthPx() const;
   int RowHeightPx() const;
   int PinSizePx() const;
-  int PinReservePx() const;
   RECT PinRect() const;
   int TopChromeHeightPx() const;
-  int FilterBarHeightPx() const;
   int PanelHeightPx(const RECT& workArea) const;
   int HitTestItem(POINT clientPt) const;
   int SelectedIndex() const;
+
+  // Filter chips and pin
   bool HasFilterBar() const;
-  void ComputeFilterChipLayout(std::vector<RECT>* outRects, int* outBarH) const;
-  void LayoutFilterChips();
+  void UpdateChipLayout() const;
   void PaintFilterBar(HDC hdc);
   void PaintPin(HDC hdc);
   int HitTestFilterChip(POINT clientPt) const;
@@ -97,28 +78,60 @@ class PanelWindow {
   bool IsFilterActive(const std::wstring& name) const;
   void ToggleFilterChip(int index);
   void TogglePin();
-  void NotifyFiltersChanged();
+  void RebuildFilterMatcher();
+  bool MatchesFilters(const FileEntry& entry) const;
+
+  // Listing and navigation
+  void PopulateList();
+  void NavigateTo(const std::wstring& path);
+  void NavigateUp();
+  bool IsAtWatchRoot() const;
+  bool IsParentRow(int index) const;
+  const FileEntry* ItemAt(int index) const;
+  // Like ItemAt, but excludes the ".." row, which file actions do not apply to.
+  const FileEntry* ActionableItemAt(int index) const;
+
+  // Item actions
+  void OpenAt(int index);
+  void OpenLocationAt(int index);
+  bool DeleteAt(int index);
+  void BeginDragAt(int index);
+  void ShowItemContextMenu(int index, POINT screenPt);
+
+  void RequestHide();
+  void HideUnlessPinned();
+  bool PanelIsForeground() const;
 
   HWND hwnd_ = nullptr;
   HWND owner_ = nullptr;
   HWND listView_ = nullptr;
   HWND tooltip_ = nullptr;
   HFONT listFont_ = nullptr;
+  HFONT pinFont_ = nullptr;
+  UINT fontDpi_ = 0;
+  config::FontSize fontSizeBuilt_ = config::FontSize::Small;
   HBRUSH bgBrush_ = nullptr;
   bool appsLight_ = true;
-  std::wstring watchPath_;
+
+  config::Settings settings_;
   std::wstring browsePath_;
-  config::SortMode sortMode_ = config::SortMode::ByTime;
-  bool showHidden_ = false;
-  bool expandFolders_ = true;
-  bool showFilters_ = true;
   bool pinned_ = false;
-  config::FontSize fontSize_ = config::FontSize::Small;
-  config::PanelSize panelSize_ = config::PanelSize::Small;
-  std::vector<config::FilterItem> filters_;
-  std::vector<std::wstring> activeFilters_;
-  std::vector<RECT> filterChipRects_;
+
+  // Derived from settings_ by RebuildFilterMatcher().
+  bool filteringActive_ = false;
+  bool matchAllFiles_ = false;
+  bool matchFolders_ = false;
+  std::unordered_set<std::wstring> allowedExt_;
+
+  // Chip layout cache; recomputed when dirty or when width / DPI change.
+  mutable std::vector<RECT> chipRects_;
+  mutable int chipBarHeight_ = 0;
+  mutable int chipLayoutWidth_ = -1;
+  mutable UINT chipLayoutDpi_ = 0;
+  mutable bool chipLayoutDirty_ = true;
+
   std::vector<FileEntry> items_;
+  lang::Id emptyTextId_ = lang::Id::EmptyFolder;  // placeholder row when items_ is empty
   int retainedHeightPx_ = 0;  // grow-only while panel stays open
   bool created_ = false;
   bool suppressDeactivateHide_ = false;

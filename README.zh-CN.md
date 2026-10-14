@@ -119,7 +119,7 @@ ActiveFilters=
 依赖：
 
 - Visual Studio 2022/2026（含 MSVC C++ 工具集）
-- Python 3（构建时生成图标：需 `pymupdf`、`pillow`）
+- Python 3（需 `pymupdf`、`pillow`；仅在 `.ico` 缺失或比 `.svg` 旧时用于生成图标，可用 `build.bat icons` 强制生成）
 
 ```bat
 pip install pymupdf pillow
@@ -148,14 +148,21 @@ main.cpp          入口、托盘消息、菜单、主题切换
 tray.cpp          托盘图标与深浅色状态
 panel.cpp         右侧滑出面板、列表、导航与右键菜单
 watcher.cpp       目录监控与枚举排序
-config.cpp        读写与 exe 同名的 .ini
+config.cpp        读写与 exe 同名的 .ini（UTF-8）
 theme.cpp         应用/任务栏主题与暗色菜单 API
 hotkey.cpp        全局热键注册与设置对话框
 filter_dlg.cpp    过滤组配置对话框
 help_dlg.cpp      帮助对话框（功能简介）
-lang.cpp          英/中界面字符串
+lang.cpp          英/中界面字符串（列表见 lang_strings.inc）
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     高质量图标加载
+slide_anim.cpp    面板滑入/滑出动画
+clipboard.cpp     复制文本 / 剪切复制文件到剪贴板
+drop_source.h     拖拽用 IDropSource
+path_util.cpp     路径工具（上级目录、包含判断、扩展名）
+str_util.cpp      字符串工具（Trim、分割、UTF-8 转换）
+ui_util.cpp       工作区与对话框居中
+win_compat.h      旧版 SDK 缺失常量
 assets/           Bootstrap Icons SVG、黑/白 ICO 生成脚本
 resource.rc       清单、图标与对话框
 build.bat         一键编译
