@@ -49,8 +49,14 @@ constexpr int kChipPadX96 = 6;
 constexpr int kChipGapX96 = 10;
 constexpr int kChipGapY96 = 6;
 constexpr int kFilterListGap96 = 6;  // space between chip block and list
+constexpr int kPinSize96 = 20;
+constexpr int kPinGap96 = 8;  // gap between chips and pin
 constexpr int kPanelMinHeight96 = 160;
 constexpr int kSlideMs = 160;
+constexpr UINT_PTR kPinTooltipId = 1;
+// Segoe MDL2 Assets glyphs
+constexpr wchar_t kPinGlyph[] = L"\xE718";
+constexpr wchar_t kPinSolidGlyph[] = L"\xE840";
 
 std::wstring ExtLower(const std::wstring& fileName) {
   const size_t dot = fileName.find_last_of(L'.');
@@ -277,12 +283,17 @@ bool PanelWindow::Create(HWND owner) {
   created_ = true;
   EnsureFont();
   EnsureList();
+  EnsureTooltip();
   ApplyTheme();
   Layout();
   return true;
 }
 
 void PanelWindow::Destroy() {
+  if (tooltip_) {
+    DestroyWindow(tooltip_);
+    tooltip_ = nullptr;
+  }
   if (hwnd_) {
     DestroyWindow(hwnd_);
     hwnd_ = nullptr;
@@ -333,6 +344,29 @@ bool PanelWindow::HasFilterBar() const {
   return showFilters_ && !filters_.empty();
 }
 
+int PanelWindow::PinSizePx() const {
+  return dpi::Scale(kPinSize96, CurrentDpi());
+}
+
+int PanelWindow::PinReservePx() const {
+  return PinSizePx() + dpi::Scale(kPinGap96, CurrentDpi());
+}
+
+RECT PanelWindow::PinRect() const {
+  RECT rc = {};
+  if (hwnd_) {
+    GetClientRect(hwnd_, &rc);
+  }
+  const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
+  const int size = PinSizePx();
+  RECT pin = {};
+  pin.right = rc.right - pad;
+  pin.left = pin.right - size;
+  pin.top = pad;
+  pin.bottom = pad + size;
+  return pin;
+}
+
 int PanelWindow::FilterBarHeightPx() const {
   if (!HasFilterBar()) {
     return 0;
@@ -342,13 +376,22 @@ int PanelWindow::FilterBarHeightPx() const {
   return barH;
 }
 
+int PanelWindow::TopChromeHeightPx() const {
+  const int pinRow = PinSizePx() + dpi::Scale(kFilterListGap96, CurrentDpi());
+  if (HasFilterBar()) {
+    const int barH = FilterBarHeightPx();
+    return barH > pinRow ? barH : pinRow;
+  }
+  return pinRow;
+}
+
 int PanelWindow::PanelHeightPx(const RECT& workArea) const {
   const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
   const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
   const int maxH = (workArea.bottom - workArea.top) - margin * 2;
   const int minH = dpi::Scale(kPanelMinHeight96, CurrentDpi());
   const int rows = items_.empty() ? 1 : static_cast<int>(items_.size());
-  int h = pad * 2 + FilterBarHeightPx() + RowHeightPx() * rows;
+  int h = pad * 2 + TopChromeHeightPx() + RowHeightPx() * rows;
   if (h < minH) {
     h = minH;
   }
@@ -532,7 +575,7 @@ void PanelWindow::ComputeFilterChipLayout(std::vector<RECT>* outRects, int* outB
   const int gapX = dpi::Scale(kChipGapX96, dpi);
   const int gapY = dpi::Scale(kChipGapY96, dpi);
   const int listGap = dpi::Scale(kFilterListGap96, dpi);
-  const int maxRight = rc.right - pad;
+  const int maxRight = rc.right - pad - PinReservePx();
   const int minChipW = dpi::Scale(28, dpi);
 
   HDC hdc = GetDC(hwnd_);
@@ -591,6 +634,43 @@ void PanelWindow::LayoutFilterChips() {
   ComputeFilterChipLayout(&filterChipRects_, nullptr);
 }
 
+void PanelWindow::EnsureTooltip() {
+  if (tooltip_ || !hwnd_) {
+    return;
+  }
+  tooltip_ = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+                             WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT, CW_USEDEFAULT,
+                             CW_USEDEFAULT, CW_USEDEFAULT, hwnd_, nullptr, GetModuleHandleW(nullptr),
+                             nullptr);
+  if (!tooltip_) {
+    return;
+  }
+  SetWindowPos(tooltip_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  SendMessageW(tooltip_, TTM_SETMAXTIPWIDTH, 0, 240);
+
+  TOOLINFOW ti = {};
+  ti.cbSize = sizeof(ti);
+  ti.uFlags = TTF_SUBCLASS;
+  ti.hwnd = hwnd_;
+  ti.uId = kPinTooltipId;
+  ti.rect = PinRect();
+  ti.lpszText = const_cast<wchar_t*>(lang::T(lang::Id::TipPin));
+  SendMessageW(tooltip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+}
+
+void PanelWindow::UpdatePinTooltip() {
+  if (!tooltip_ || !hwnd_) {
+    return;
+  }
+  TOOLINFOW ti = {};
+  ti.cbSize = sizeof(ti);
+  ti.hwnd = hwnd_;
+  ti.uId = kPinTooltipId;
+  ti.rect = PinRect();
+  ti.lpszText = const_cast<wchar_t*>(pinned_ ? lang::T(lang::Id::TipUnpin) : lang::T(lang::Id::TipPin));
+  SendMessageW(tooltip_, TTM_SETTOOLINFOW, 0, reinterpret_cast<LPARAM>(&ti));
+}
+
 void PanelWindow::Layout() {
   if (!hwnd_ || !listView_) {
     return;
@@ -598,12 +678,12 @@ void PanelWindow::Layout() {
   RECT rc = {};
   GetClientRect(hwnd_, &rc);
   const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
-  const int barH = FilterBarHeightPx();
+  const int chromeH = TopChromeHeightPx();
   LayoutFilterChips();
   int x = pad;
-  int y = pad + barH;
+  int y = pad + chromeH;
   int w = (rc.right - rc.left) - pad * 2;
-  int h = (rc.bottom - rc.top) - pad * 2 - barH;
+  int h = (rc.bottom - rc.top) - pad * 2 - chromeH;
   if (w < 1) {
     w = 1;
   }
@@ -612,10 +692,9 @@ void PanelWindow::Layout() {
   }
   SetWindowPos(listView_, nullptr, x, y, w, h, SWP_NOZORDER);
   UpdateColumnWidth();
-  if (HasFilterBar()) {
-    RECT chipRc = {0, 0, rc.right, pad + barH};
-    InvalidateRect(hwnd_, &chipRc, TRUE);
-  }
+  UpdatePinTooltip();
+  RECT chromeRc = {0, 0, rc.right, pad + chromeH};
+  InvalidateRect(hwnd_, &chromeRc, TRUE);
 }
 
 void PanelWindow::SetWatchPath(const std::wstring& path) {
@@ -692,6 +771,18 @@ void PanelWindow::ToggleFilterChip(int index) {
   NotifyFiltersChanged();
 }
 
+void PanelWindow::TogglePin() {
+  pinned_ = !pinned_;
+  UpdatePinTooltip();
+  const RECT pin = PinRect();
+  InvalidateRect(hwnd_, &pin, TRUE);
+}
+
+bool PanelWindow::HitTestPin(POINT clientPt) const {
+  const RECT pin = PinRect();
+  return PtInRect(&pin, clientPt) != FALSE;
+}
+
 int PanelWindow::HitTestFilterChip(POINT clientPt) const {
   for (size_t i = 0; i < filterChipRects_.size(); ++i) {
     if (PtInRect(&filterChipRects_[i], clientPt)) {
@@ -739,6 +830,55 @@ void PanelWindow::PaintFilterBar(HDC hdc) {
 
   if (oldFont) {
     SelectObject(hdc, oldFont);
+  }
+}
+
+void PanelWindow::PaintPin(HDC hdc) {
+  const RECT pin = PinRect();
+  const bool dark = !appsLight_;
+  const COLORREF color =
+      pinned_ ? GetSysColor(COLOR_HOTLIGHT) : (dark ? RGB(200, 200, 200) : RGB(80, 80, 80));
+
+  LOGFONTW lf = {};
+  lf.lfHeight = -(PinSizePx() - dpi::Scale(2, CurrentDpi()));
+  lf.lfWeight = FW_NORMAL;
+  lf.lfCharSet = DEFAULT_CHARSET;
+  lf.lfQuality = CLEARTYPE_QUALITY;
+  wcscpy_s(lf.lfFaceName, L"Segoe MDL2 Assets");
+  HFONT iconFont = CreateFontIndirectW(&lf);
+  HFONT oldFont = nullptr;
+  bool drewGlyph = false;
+  if (iconFont) {
+    oldFont = static_cast<HFONT>(SelectObject(hdc, iconFont));
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, color);
+    const wchar_t* glyph = pinned_ ? kPinSolidGlyph : kPinGlyph;
+    const int result = DrawTextW(hdc, glyph, -1, const_cast<RECT*>(&pin),
+                                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    drewGlyph = result > 0;
+    SelectObject(hdc, oldFont);
+    DeleteObject(iconFont);
+  }
+
+  if (!drewGlyph) {
+    // Fallback geometric pin if MDL2 font is unavailable.
+    const int cx = (pin.left + pin.right) / 2;
+    const int cy = (pin.top + pin.bottom) / 2;
+    const int r = dpi::Scale(4, CurrentDpi());
+    HPEN pen = CreatePen(PS_SOLID, dpi::Scale(2, CurrentDpi()), color);
+    HBRUSH brush = pinned_ ? CreateSolidBrush(color) : static_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    HGDIOBJ oldBrush = SelectObject(hdc, brush);
+    Ellipse(hdc, cx - r, cy - r - dpi::Scale(2, CurrentDpi()), cx + r,
+            cy + r - dpi::Scale(2, CurrentDpi()));
+    MoveToEx(hdc, cx, cy + r - dpi::Scale(2, CurrentDpi()), nullptr);
+    LineTo(hdc, cx, pin.bottom - dpi::Scale(2, CurrentDpi()));
+    SelectObject(hdc, oldPen);
+    SelectObject(hdc, oldBrush);
+    DeleteObject(pen);
+    if (pinned_) {
+      DeleteObject(brush);
+    }
   }
 }
 
@@ -1090,7 +1230,7 @@ void PanelWindow::OpenAt(int index) {
   }
 
   ShellExecuteW(hwnd_, L"open", entry.fullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-  if (owner_) {
+  if (!pinned_ && owner_) {
     PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
   }
 }
@@ -1107,7 +1247,7 @@ void PanelWindow::OpenLocationAt(int index) {
   if (pidl) {
     SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
     ILFree(pidl);
-    if (owner_) {
+    if (!pinned_ && owner_) {
       PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
     }
     return;
@@ -1119,7 +1259,7 @@ void PanelWindow::OpenLocationAt(int index) {
   if (pos != std::wstring::npos) {
     path.resize(pos);
     ShellExecuteW(hwnd_, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    if (owner_) {
+    if (!pinned_ && owner_) {
       PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
     }
   }
@@ -1192,7 +1332,7 @@ void PanelWindow::BeginDragAt(int index) {
 
   const HWND fg = GetForegroundWindow();
   const bool panelIsForeground = fg == hwnd_ || (fg != nullptr && IsChild(hwnd_, fg));
-  if (!panelIsForeground) {
+  if (!panelIsForeground && !pinned_) {
     if (owner_) {
       PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
     } else {
@@ -1234,6 +1374,9 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
   suppressDeactivateHide_ = false;
 
   auto requestHide = [this]() {
+    if (pinned_) {
+      return;
+    }
     if (owner_) {
       PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
     } else {
@@ -1308,11 +1451,16 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
       PAINTSTRUCT ps = {};
       HDC hdc = BeginPaint(hwnd_, &ps);
       PaintFilterBar(hdc);
+      PaintPin(hdc);
       EndPaint(hwnd_, &ps);
       return 0;
     }
     case WM_LBUTTONDOWN: {
       POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+      if (HitTestPin(pt)) {
+        TogglePin();
+        return 0;
+      }
       const int chip = HitTestFilterChip(pt);
       if (chip >= 0) {
         ToggleFilterChip(chip);
@@ -1339,7 +1487,7 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
       Layout();
       return 0;
     case WM_ACTIVATE:
-      if (LOWORD(wParam) == WA_INACTIVE && !suppressDeactivateHide_) {
+      if (LOWORD(wParam) == WA_INACTIVE && !suppressDeactivateHide_ && !pinned_) {
         if (owner_) {
           PostMessageW(owner_, WM_REQUEST_HIDE, 0, 0);
         }

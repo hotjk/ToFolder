@@ -36,6 +36,7 @@ class PanelWindow {
   void SetActiveFilters(const std::vector<std::wstring>& activeFilters);
   const std::vector<config::FilterItem>& Filters() const { return filters_; }
   const std::vector<std::wstring>& ActiveFilters() const { return activeFilters_; }
+  bool IsPinned() const { return pinned_; }
   void Refresh();
   void RefreshTheme();
   bool ContainsPoint(POINT pt) const;
@@ -55,6 +56,8 @@ class PanelWindow {
   void EnsureListIcons();
   void EnsureFont();
   void EnsureSelection();
+  void EnsureTooltip();
+  void UpdatePinTooltip();
   void ApplyTheme();
   void NavigateTo(const std::wstring& path);
   void NavigateUp();
@@ -67,6 +70,10 @@ class PanelWindow {
   UINT CurrentDpi() const;
   int PanelWidthPx() const;
   int RowHeightPx() const;
+  int PinSizePx() const;
+  int PinReservePx() const;
+  RECT PinRect() const;
+  int TopChromeHeightPx() const;
   int FilterBarHeightPx() const;
   int PanelHeightPx(const RECT& workArea) const;
   int HitTestItem(POINT clientPt) const;
@@ -75,14 +82,18 @@ class PanelWindow {
   void ComputeFilterChipLayout(std::vector<RECT>* outRects, int* outBarH) const;
   void LayoutFilterChips();
   void PaintFilterBar(HDC hdc);
+  void PaintPin(HDC hdc);
   int HitTestFilterChip(POINT clientPt) const;
+  bool HitTestPin(POINT clientPt) const;
   bool IsFilterActive(const std::wstring& name) const;
   void ToggleFilterChip(int index);
+  void TogglePin();
   void NotifyFiltersChanged();
 
   HWND hwnd_ = nullptr;
   HWND owner_ = nullptr;
   HWND listView_ = nullptr;
+  HWND tooltip_ = nullptr;
   HFONT listFont_ = nullptr;
   HBRUSH bgBrush_ = nullptr;
   bool appsLight_ = true;
@@ -92,6 +103,7 @@ class PanelWindow {
   bool showHidden_ = false;
   bool expandFolders_ = false;
   bool showFilters_ = true;
+  bool pinned_ = false;
   std::vector<config::FilterItem> filters_;
   std::vector<std::wstring> activeFilters_;
   std::vector<RECT> filterChipRects_;

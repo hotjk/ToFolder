@@ -64,6 +64,8 @@ constexpr Strings kStrings[static_cast<int>(Id::Count)] = {
     {L"Update", L"更新"},
     {L"Please enter a filter name.", L"请输入过滤项名称。"},
     {L"A filter with that name already exists.", L"已存在同名过滤项。"},
+    {L"Pin panel", L"固定面板"},
+    {L"Unpin panel", L"取消固定"},
 };
 
 }  // namespace

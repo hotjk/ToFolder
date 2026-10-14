@@ -16,7 +16,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 - Item context menu: Open / Open containing folder / Delete (Recycle Bin)
 - Drag items to the desktop or Explorer: move by default, Ctrl to copy
 - Keyboard: ↑↓ select, Enter open, Backspace go up (expand mode), Esc close
-- Click outside or lose focus to dismiss the panel
+- Click outside or lose focus to dismiss the panel (unless pinned)
 - If no watch folder is set, left-click opens a folder picker
 - Tray glyphs follow taskbar light/dark (runtime recolor); menus and panel follow app light/dark
 - Optional global hotkey to toggle the panel (**Hotkey...** in the tray menu)
@@ -47,6 +47,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 - Top `..` row: go up (not above the watch root)
 - Backspace: go up
 - Panel height grows with content and does not shrink while open
+- Top-right **pin** keeps the panel open when clicking outside (Esc / tray click still closes)
 
 ## Filters
 

@@ -59,6 +59,8 @@ enum class Id {
   FiltersUpdate,
   FiltersNameRequired,
   FiltersNameDuplicate,
+  TipPin,
+  TipUnpin,
   Count,
 };
 
