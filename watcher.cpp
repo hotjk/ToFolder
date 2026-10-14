@@ -61,13 +61,17 @@ std::vector<FileEntry> DirectoryWatcher::Enumerate(const std::wstring& path,
     entry.lastWrite = fd.ftLastWriteTime;
     entry.isDirectory = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 
+    // USEFILEATTRIBUTES: resolve icon by type/extension only — avoids per-file
+    // disk/shell I/O that stalls the UI when entering folders with many items.
     SHFILEINFOW sfi = {};
+    const DWORD attrs =
+        entry.isDirectory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
     if (SHGetFileInfoW(
-            entry.fullPath.c_str(),
-            0,
+            entry.name.c_str(),
+            attrs,
             &sfi,
             sizeof(sfi),
-            SHGFI_SYSICONINDEX | SHGFI_SMALLICON)) {
+            SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES)) {
       entry.iconIndex = sfi.iIcon;
     }
 

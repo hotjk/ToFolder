@@ -20,6 +20,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 - 未选择监控文件夹时，左键点击托盘会弹出「选择文件夹」对话框
 - 托盘图标随任务栏深浅色自动切换黑线/白线；菜单与面板随应用深浅色主题
 - 可选全局热键切换面板（托盘菜单 **Hotkey...** 设置）
+- 文件类型过滤（默认 file / folder / image / zip / doc）：面板顶部多选 OR 芯片；托盘 **过滤...** 配置
 - 可选 **Start with Windows** 开机自启（默认关闭；写入 HKCU Run）
 
 ## 托盘菜单
@@ -36,6 +37,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 | Start with Windows | 登录时自动启动（默认关闭） |
 | Language | English / 中文（默认英文；首次启动跟随系统 UI 语言） |
 | Hotkey... | 开启/设置全局热键（切换面板） |
+| 过滤... | 启用过滤并编辑过滤组 |
 | About... | 打开 GitHub 仓库页面 |
 | Exit | 退出程序 |
 
@@ -45,6 +47,15 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 - 列表顶部 `..`：返回上级（不超过监控根目录）
 - Backspace：返回上级
 - 面板高度按内容增高，打开期间不因文件变少而缩短
+
+## 过滤
+
+- 配置了过滤组时，面板顶部显示可切换芯片
+- 可多选；匹配任一选中组即显示（OR）
+- 未勾选任何芯片 = 显示全部
+- `file`（`*`）= 全部文件；`folder`（`/`）= 文件夹；其余按扩展名
+- 默认：`file`、`folder`、`image`、`zip`、`doc`（可在 **过滤...** 中编辑）
+- 开启「展开文件夹」时，`..` 导航行始终保留
 
 ## 配置
 
@@ -56,8 +67,21 @@ SortMode=time
 ShowHidden=false
 ExpandFolders=false
 WatchEnabled=true
+ShowFilters=true
 HotkeyEnabled=false
 Hotkey=Ctrl+Shift+F
+FilterCount=5
+Filter1Name=file
+Filter1Ext=*
+Filter2Name=folder
+Filter2Ext=/
+Filter3Name=image
+Filter3Ext=jpg,jpeg,png,gif,webp,bmp,ico,tif,tiff,heic,svg
+Filter4Name=zip
+Filter4Ext=zip,7z,rar,tar,gz,bz2,xz,tgz
+Filter5Name=doc
+Filter5Ext=doc,docx,xls,xlsx,ppt,pptx,pdf,txt,md,rtf,odt,ods,odp
+ActiveFilters=
 ```
 
 | 键 | 取值 | 说明 |
@@ -67,9 +91,13 @@ Hotkey=Ctrl+Shift+F
 | `ShowHidden` | `true` / `false` | 显示隐藏文件 |
 | `ExpandFolders` | `true` / `false` | 面板内展开进入子目录 |
 | `WatchEnabled` | `true` / `false` | 监控新增文件（默认开启） |
+| `ShowFilters` | `true` / `false` | 是否启用过滤（默认开启；在 **过滤...** 中设置）；关闭时隐藏芯片且不过滤 |
 | `HotkeyEnabled` | `true` / `false` | 是否注册全局热键 |
 | `Hotkey` | 如 `Ctrl+Shift+F` | 热键组合（Ctrl/Alt/Shift/Win + 主键） |
 | `Language` | `en` / `zh` | 界面语言（首次启动若未配置则按系统语言写入） |
+| `FilterCount` | 整数 | 过滤组数量（缺失时写入默认三项） |
+| `FilterNName` / `FilterNExt` | 名称 / 扩展名 | 组名；扩展名，或 `*`（全部文件）、`/`（文件夹） |
+| `ActiveFilters` | `file,image` | 当前勾选的过滤组（OR）；空表示不过滤 |
 
 也可通过托盘菜单修改，选项会写回该文件。
 
@@ -115,11 +143,12 @@ watcher.cpp       目录监控与枚举排序
 config.cpp        读写 config.ini
 theme.cpp         应用/任务栏主题与暗色菜单 API
 hotkey.cpp        全局热键注册与设置对话框
+filter_dlg.cpp    过滤组配置对话框
 lang.cpp          英/中界面字符串
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     高质量图标加载
 assets/           Bootstrap Icons SVG、黑/白 ICO 生成脚本
-resource.rc       清单、图标与热键对话框
+resource.rc       清单、图标与对话框
 build.bat         一键编译
 ```
 

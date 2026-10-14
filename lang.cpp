@@ -28,6 +28,7 @@ constexpr Strings kStrings[static_cast<int>(Id::Count)] = {
     {L"English", L"English"},
     {L"中文", L"中文"},
     {L"Hotkey...", L"热键..."},
+    {L"Filters...", L"过滤..."},
     {L"About...", L"关于..."},
     {L"Exit", L"退出"},
     {L"Could not update the Windows startup setting.", L"无法更新开机自启动设置。"},
@@ -51,6 +52,18 @@ constexpr Strings kStrings[static_cast<int>(Id::Count)] = {
     {L"Please set a hotkey first.", L"请先设置热键。"},
     {L"Could not register that hotkey. It may already be in use by another program.",
      L"无法注册该热键，可能已被其他程序占用。"},
+    {L"Filters", L"过滤项"},
+    {L"Enable filters", L"启用过滤"},
+    {L"Filters:", L"过滤项："},
+    {L"Name:", L"名称："},
+    {L"Extensions:", L"扩展名："},
+    {L"Comma-separated exts (jpg,png), or * for all files, / for folders.",
+     L"逗号分隔扩展名（jpg,png），或 * 表示全部文件，/ 表示文件夹。"},
+    {L"Add", L"添加"},
+    {L"Remove", L"删除"},
+    {L"Update", L"更新"},
+    {L"Please enter a filter name.", L"请输入过滤项名称。"},
+    {L"A filter with that name already exists.", L"已存在同名过滤项。"},
 };
 
 }  // namespace

@@ -20,6 +20,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 - If no watch folder is set, left-click opens a folder picker
 - Tray glyphs follow taskbar light/dark (runtime recolor); menus and panel follow app light/dark
 - Optional global hotkey to toggle the panel (**Hotkey...** in the tray menu)
+- File type filters (default file / folder / image / zip / doc): multi-select OR chips on the panel; configure via **Filters...**
 - Optional **Start with Windows** (off by default; HKCU Run)
 
 ## Tray menu
@@ -36,6 +37,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 | Start with Windows | Launch at sign-in (off by default) |
 | Language | English / 中文 (default English; first run follows OS UI language) |
 | Hotkey... | Enable / change the global hotkey (toggle panel) |
+| Filters... | Enable filters and edit filter groups |
 | About... | Open the GitHub repository |
 | Exit | Quit |
 
@@ -45,6 +47,15 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 - Top `..` row: go up (not above the watch root)
 - Backspace: go up
 - Panel height grows with content and does not shrink while open
+
+## Filters
+
+- When filter groups exist, chips appear at the top of the panel
+- Click chips to toggle; multiple chips use OR (union of matches)
+- No chip selected = show everything
+- `file` (`*`) = all files; `folder` (`/`) = folders; others match extensions
+- Defaults: `file`, `folder`, `image`, `zip`, `doc` (editable in **Filters...**)
+- `..` navigation row is always kept when Expand folders is on
 
 ## Configuration
 
@@ -56,8 +67,21 @@ SortMode=time
 ShowHidden=false
 ExpandFolders=false
 WatchEnabled=true
+ShowFilters=true
 HotkeyEnabled=false
 Hotkey=Ctrl+Shift+F
+FilterCount=5
+Filter1Name=file
+Filter1Ext=*
+Filter2Name=folder
+Filter2Ext=/
+Filter3Name=image
+Filter3Ext=jpg,jpeg,png,gif,webp,bmp,ico,tif,tiff,heic,svg
+Filter4Name=zip
+Filter4Ext=zip,7z,rar,tar,gz,bz2,xz,tgz
+Filter5Name=doc
+Filter5Ext=doc,docx,xls,xlsx,ppt,pptx,pdf,txt,md,rtf,odt,ods,odp
+ActiveFilters=
 ```
 
 | Key | Values | Description |
@@ -67,9 +91,13 @@ Hotkey=Ctrl+Shift+F
 | `ShowHidden` | `true` / `false` | Show hidden files |
 | `ExpandFolders` | `true` / `false` | In-panel folder navigation |
 | `WatchEnabled` | `true` / `false` | Watch for new files (default on) |
+| `ShowFilters` | `true` / `false` | Enable filters (default on; set in **Filters...**); off hides chips and disables filtering |
 | `HotkeyEnabled` | `true` / `false` | Register the global hotkey |
 | `Hotkey` | e.g. `Ctrl+Shift+F` | Chord (Ctrl/Alt/Shift/Win + key) |
 | `Language` | `en` / `zh` | UI language (written on first run from OS if unset) |
+| `FilterCount` | integer | Number of filter groups (defaults seeded if missing) |
+| `FilterNName` / `FilterNExt` | name / exts | Group name; exts, or `*` (all files), `/` (folders) |
+| `ActiveFilters` | `file,image` | Currently toggled-on filter names (OR); empty = no filter |
 
 Tray menu changes are written back to this file.
 
@@ -115,11 +143,12 @@ watcher.cpp       Directory watch and enumeration/sort
 config.cpp        config.ini read/write
 theme.cpp         App/taskbar theme and dark menu APIs
 hotkey.cpp        Global hotkey registration and settings dialog
+filter_dlg.cpp    Filter group editor dialog
 lang.cpp          English / Chinese UI strings
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     High-quality icon loading
 assets/           Bootstrap Icons SVGs and compact ICO scripts
-resource.rc       Manifest, icons, hotkey dialog
+resource.rc       Manifest, icons, dialogs
 build.bat         One-shot build
 ```
 

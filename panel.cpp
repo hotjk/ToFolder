@@ -18,6 +18,8 @@
 #include <cmath>
 #include <new>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #ifndef LVS_EX_NOHSCROLL
 #define LVS_EX_NOHSCROLL 0x10000000
@@ -42,8 +44,53 @@ constexpr int kPanelWidth96 = 360;
 constexpr int kPanelMargin96 = 12;
 constexpr int kPanelPadding96 = 12;
 constexpr int kRowHeight96 = 28;
+constexpr int kChipHeight96 = 20;
+constexpr int kChipPadX96 = 6;
+constexpr int kChipGapX96 = 10;
+constexpr int kChipGapY96 = 6;
+constexpr int kFilterListGap96 = 6;  // space between chip block and list
 constexpr int kPanelMinHeight96 = 160;
 constexpr int kSlideMs = 160;
+
+std::wstring ExtLower(const std::wstring& fileName) {
+  const size_t dot = fileName.find_last_of(L'.');
+  if (dot == std::wstring::npos || dot + 1 >= fileName.size()) {
+    return {};
+  }
+  std::wstring ext = fileName.substr(dot + 1);
+  for (wchar_t& ch : ext) {
+    ch = static_cast<wchar_t>(towlower(ch));
+  }
+  return ext;
+}
+
+std::unordered_set<std::wstring> SplitExtSet(const std::wstring& extensions) {
+  std::unordered_set<std::wstring> set;
+  size_t start = 0;
+  while (start <= extensions.size()) {
+    size_t comma = extensions.find(L',', start);
+    if (comma == std::wstring::npos) {
+      comma = extensions.size();
+    }
+    std::wstring part = extensions.substr(start, comma - start);
+    size_t b = 0;
+    while (b < part.size() && iswspace(part[b])) {
+      ++b;
+    }
+    size_t e = part.size();
+    while (e > b && iswspace(part[e - 1])) {
+      --e;
+    }
+    if (e > b) {
+      set.insert(part.substr(b, e - b));
+    }
+    if (comma >= extensions.size()) {
+      break;
+    }
+    start = comma + 1;
+  }
+  return set;
+}
 
 class SimpleDropSource final : public IDropSource {
  public:
@@ -282,13 +329,26 @@ int PanelWindow::RowHeightPx() const {
   return dpi::Scale(kRowHeight96, CurrentDpi());
 }
 
+bool PanelWindow::HasFilterBar() const {
+  return showFilters_ && !filters_.empty();
+}
+
+int PanelWindow::FilterBarHeightPx() const {
+  if (!HasFilterBar()) {
+    return 0;
+  }
+  int barH = 0;
+  ComputeFilterChipLayout(nullptr, &barH);
+  return barH;
+}
+
 int PanelWindow::PanelHeightPx(const RECT& workArea) const {
   const int margin = dpi::Scale(kPanelMargin96, CurrentDpi());
   const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
   const int maxH = (workArea.bottom - workArea.top) - margin * 2;
   const int minH = dpi::Scale(kPanelMinHeight96, CurrentDpi());
   const int rows = items_.empty() ? 1 : static_cast<int>(items_.size());
-  int h = pad * 2 + RowHeightPx() * rows;
+  int h = pad * 2 + FilterBarHeightPx() + RowHeightPx() * rows;
   if (h < minH) {
     h = minH;
   }
@@ -452,6 +512,85 @@ void PanelWindow::UpdateColumnWidth() {
   ShowScrollBar(listView_, SB_HORZ, FALSE);
 }
 
+void PanelWindow::ComputeFilterChipLayout(std::vector<RECT>* outRects, int* outBarH) const {
+  if (outRects) {
+    outRects->clear();
+  }
+  if (outBarH) {
+    *outBarH = 0;
+  }
+  if (!HasFilterBar() || !hwnd_ || filters_.empty()) {
+    return;
+  }
+
+  RECT rc = {};
+  GetClientRect(hwnd_, &rc);
+  const UINT dpi = CurrentDpi();
+  const int pad = dpi::Scale(kPanelPadding96, dpi);
+  const int chipH = dpi::Scale(kChipHeight96, dpi);
+  const int chipPadX = dpi::Scale(kChipPadX96, dpi);
+  const int gapX = dpi::Scale(kChipGapX96, dpi);
+  const int gapY = dpi::Scale(kChipGapY96, dpi);
+  const int listGap = dpi::Scale(kFilterListGap96, dpi);
+  const int maxRight = rc.right - pad;
+  const int minChipW = dpi::Scale(28, dpi);
+
+  HDC hdc = GetDC(hwnd_);
+  HFONT oldFont = nullptr;
+  if (listFont_) {
+    oldFont = static_cast<HFONT>(SelectObject(hdc, listFont_));
+  }
+
+  int x = pad;
+  int y = pad;
+  int lastBottom = pad + chipH;
+
+  for (const auto& filter : filters_) {
+    SIZE sz = {};
+    GetTextExtentPoint32W(hdc, filter.name.c_str(), static_cast<int>(filter.name.size()), &sz);
+    int chipW = sz.cx + chipPadX * 2;
+    if (chipW < minChipW) {
+      chipW = minChipW;
+    }
+    // Wrap if this chip would overflow (keep at least one chip per row).
+    if (x > pad && x + chipW > maxRight) {
+      x = pad;
+      y += chipH + gapY;
+    }
+    // Cap width on very narrow panels so a single long name still fits.
+    if (chipW > maxRight - pad) {
+      chipW = maxRight - pad;
+      if (chipW < 1) {
+        chipW = 1;
+      }
+    }
+    RECT chip = {x, y, x + chipW, y + chipH};
+    if (outRects) {
+      outRects->push_back(chip);
+    }
+    lastBottom = chip.bottom;
+    x += chipW + gapX;
+  }
+
+  if (oldFont) {
+    SelectObject(hdc, oldFont);
+  }
+  ReleaseDC(hwnd_, hdc);
+
+  if (outBarH) {
+    // Height of chip block below the top padding, plus gap before the list.
+    *outBarH = (lastBottom - pad) + listGap;
+  }
+}
+
+void PanelWindow::LayoutFilterChips() {
+  filterChipRects_.clear();
+  if (!HasFilterBar()) {
+    return;
+  }
+  ComputeFilterChipLayout(&filterChipRects_, nullptr);
+}
+
 void PanelWindow::Layout() {
   if (!hwnd_ || !listView_) {
     return;
@@ -459,10 +598,12 @@ void PanelWindow::Layout() {
   RECT rc = {};
   GetClientRect(hwnd_, &rc);
   const int pad = dpi::Scale(kPanelPadding96, CurrentDpi());
+  const int barH = FilterBarHeightPx();
+  LayoutFilterChips();
   int x = pad;
-  int y = pad;
+  int y = pad + barH;
   int w = (rc.right - rc.left) - pad * 2;
-  int h = (rc.bottom - rc.top) - pad * 2;
+  int h = (rc.bottom - rc.top) - pad * 2 - barH;
   if (w < 1) {
     w = 1;
   }
@@ -471,6 +612,10 @@ void PanelWindow::Layout() {
   }
   SetWindowPos(listView_, nullptr, x, y, w, h, SWP_NOZORDER);
   UpdateColumnWidth();
+  if (HasFilterBar()) {
+    RECT chipRc = {0, 0, rc.right, pad + barH};
+    InvalidateRect(hwnd_, &chipRc, TRUE);
+  }
 }
 
 void PanelWindow::SetWatchPath(const std::wstring& path) {
@@ -493,6 +638,107 @@ void PanelWindow::SetExpandFolders(bool expandFolders) {
     if (IsVisible()) {
       Refresh();
     }
+  }
+}
+
+void PanelWindow::SetShowFilters(bool showFilters) {
+  showFilters_ = showFilters;
+}
+
+void PanelWindow::SetFilters(const std::vector<config::FilterItem>& filters) {
+  filters_ = filters;
+  config::PruneActiveFilters(filters_, activeFilters_);
+}
+
+void PanelWindow::SetActiveFilters(const std::vector<std::wstring>& activeFilters) {
+  activeFilters_ = activeFilters;
+  config::PruneActiveFilters(filters_, activeFilters_);
+}
+
+bool PanelWindow::IsFilterActive(const std::wstring& name) const {
+  for (const auto& active : activeFilters_) {
+    if (_wcsicmp(active.c_str(), name.c_str()) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void PanelWindow::NotifyFiltersChanged() {
+  if (owner_) {
+    PostMessageW(owner_, WM_FILTERS_CHANGED, 0, 0);
+  }
+}
+
+void PanelWindow::ToggleFilterChip(int index) {
+  if (index < 0 || index >= static_cast<int>(filters_.size())) {
+    return;
+  }
+  const std::wstring& name = filters_[index].name;
+  bool found = false;
+  for (auto it = activeFilters_.begin(); it != activeFilters_.end(); ++it) {
+    if (_wcsicmp(it->c_str(), name.c_str()) == 0) {
+      activeFilters_.erase(it);
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    activeFilters_.push_back(name);
+  }
+  PopulateList();
+  ApplyVisibleSize(false);
+  InvalidateRect(hwnd_, nullptr, TRUE);
+  NotifyFiltersChanged();
+}
+
+int PanelWindow::HitTestFilterChip(POINT clientPt) const {
+  for (size_t i = 0; i < filterChipRects_.size(); ++i) {
+    if (PtInRect(&filterChipRects_[i], clientPt)) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+void PanelWindow::PaintFilterBar(HDC hdc) {
+  if (!HasFilterBar()) {
+    return;
+  }
+  LayoutFilterChips();
+  const bool dark = !appsLight_;
+  const COLORREF textIdle = dark ? RGB(160, 160, 160) : RGB(110, 110, 110);
+  const COLORREF textActive = dark ? RGB(240, 240, 240) : RGB(20, 20, 20);
+  const COLORREF accent = GetSysColor(COLOR_HOTLIGHT);
+  const int underline = dpi::Scale(2, CurrentDpi());
+
+  HFONT oldFont = nullptr;
+  if (listFont_) {
+    oldFont = static_cast<HFONT>(SelectObject(hdc, listFont_));
+  }
+  SetBkMode(hdc, TRANSPARENT);
+
+  for (size_t i = 0; i < filterChipRects_.size() && i < filters_.size(); ++i) {
+    const RECT& r = filterChipRects_[i];
+    const bool on = IsFilterActive(filters_[i].name);
+    SetTextColor(hdc, on ? textActive : textIdle);
+    DrawTextW(hdc, filters_[i].name.c_str(), -1, const_cast<RECT*>(&r),
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+    if (on) {
+      HPEN pen = CreatePen(PS_SOLID, underline, accent);
+      HGDIOBJ oldPen = SelectObject(hdc, pen);
+      const int y = r.bottom - underline;
+      const int inset = dpi::Scale(2, CurrentDpi());
+      MoveToEx(hdc, r.left + inset, y, nullptr);
+      LineTo(hdc, r.right - inset, y);
+      SelectObject(hdc, oldPen);
+      DeleteObject(pen);
+    }
+  }
+
+  if (oldFont) {
+    SelectObject(hdc, oldFont);
   }
 }
 
@@ -614,6 +860,42 @@ void PanelWindow::PopulateList() {
   const int top = ListView_GetTopIndex(listView_);
   items_ = DirectoryWatcher::Enumerate(browsePath_, sortMode_, showHidden_);
 
+  if (showFilters_ && !activeFilters_.empty()) {
+    bool matchAllFiles = false;
+    bool matchFolders = false;
+    std::unordered_set<std::wstring> allowedExt;
+    for (const auto& filter : filters_) {
+      if (!IsFilterActive(filter.name)) {
+        continue;
+      }
+      if (config::IsFilesFilter(filter)) {
+        matchAllFiles = true;
+      } else if (config::IsFoldersFilter(filter)) {
+        matchFolders = true;
+      } else {
+        auto part = SplitExtSet(filter.extensions);
+        allowedExt.insert(part.begin(), part.end());
+      }
+    }
+    std::vector<FileEntry> filtered;
+    filtered.reserve(items_.size());
+    for (auto& entry : items_) {
+      bool keep = false;
+      if (entry.isDirectory) {
+        keep = matchFolders;
+      } else if (matchAllFiles) {
+        keep = true;
+      } else if (!allowedExt.empty()) {
+        const std::wstring ext = ExtLower(entry.name);
+        keep = !ext.empty() && allowedExt.find(ext) != allowedExt.end();
+      }
+      if (keep) {
+        filtered.push_back(std::move(entry));
+      }
+    }
+    items_ = std::move(filtered);
+  }
+
   if (expandFolders_ && !IsAtWatchRoot()) {
     FileEntry up;
     up.name = L"..";
@@ -650,6 +932,7 @@ void PanelWindow::PopulateList() {
 void PanelWindow::Refresh() {
   PopulateList();
   // Watcher/config refresh may grow for new files, but keep size when list shrinks.
+  // ApplyVisibleSize -> Layout (filter chips measured once there).
   ApplyVisibleSize(false);
 }
 
@@ -1020,6 +1303,22 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
       HBRUSH brush = bgBrush_ ? bgBrush_ : reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
       FillRect(hdc, &rc, brush);
       return 1;
+    }
+    case WM_PAINT: {
+      PAINTSTRUCT ps = {};
+      HDC hdc = BeginPaint(hwnd_, &ps);
+      PaintFilterBar(hdc);
+      EndPaint(hwnd_, &ps);
+      return 0;
+    }
+    case WM_LBUTTONDOWN: {
+      POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+      const int chip = HitTestFilterChip(pt);
+      if (chip >= 0) {
+        ToggleFilterChip(chip);
+        return 0;
+      }
+      break;
     }
     case WM_DPICHANGED: {
       const RECT* suggested = reinterpret_cast<const RECT*>(lParam);

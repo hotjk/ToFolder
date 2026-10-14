@@ -30,6 +30,12 @@ class PanelWindow {
   bool ShowHidden() const { return showHidden_; }
   void SetExpandFolders(bool expandFolders);
   bool ExpandFolders() const { return expandFolders_; }
+  void SetShowFilters(bool showFilters);
+  bool ShowFilters() const { return showFilters_; }
+  void SetFilters(const std::vector<config::FilterItem>& filters);
+  void SetActiveFilters(const std::vector<std::wstring>& activeFilters);
+  const std::vector<config::FilterItem>& Filters() const { return filters_; }
+  const std::vector<std::wstring>& ActiveFilters() const { return activeFilters_; }
   void Refresh();
   void RefreshTheme();
   bool ContainsPoint(POINT pt) const;
@@ -61,9 +67,18 @@ class PanelWindow {
   UINT CurrentDpi() const;
   int PanelWidthPx() const;
   int RowHeightPx() const;
+  int FilterBarHeightPx() const;
   int PanelHeightPx(const RECT& workArea) const;
   int HitTestItem(POINT clientPt) const;
   int SelectedIndex() const;
+  bool HasFilterBar() const;
+  void ComputeFilterChipLayout(std::vector<RECT>* outRects, int* outBarH) const;
+  void LayoutFilterChips();
+  void PaintFilterBar(HDC hdc);
+  int HitTestFilterChip(POINT clientPt) const;
+  bool IsFilterActive(const std::wstring& name) const;
+  void ToggleFilterChip(int index);
+  void NotifyFiltersChanged();
 
   HWND hwnd_ = nullptr;
   HWND owner_ = nullptr;
@@ -76,6 +91,10 @@ class PanelWindow {
   config::SortMode sortMode_ = config::SortMode::ByTime;
   bool showHidden_ = false;
   bool expandFolders_ = false;
+  bool showFilters_ = true;
+  std::vector<config::FilterItem> filters_;
+  std::vector<std::wstring> activeFilters_;
+  std::vector<RECT> filterChipRects_;
   std::vector<FileEntry> items_;
   int retainedHeightPx_ = 0;  // grow-only while panel stays open
   bool created_ = false;

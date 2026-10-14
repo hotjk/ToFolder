@@ -19,8 +19,9 @@
 #define IDM_LANG_EN             1011
 #define IDM_LANG_ZH             1012
 #define IDM_HOTKEY              1013
-#define IDM_ABOUT               1014
-#define IDM_EXIT                1015
+#define IDM_FILTERS             1014
+#define IDM_ABOUT               1015
+#define IDM_EXIT                1016
 
 #define IDM_LIST_OPEN           1101
 #define IDM_LIST_OPEN_LOCATION  1102
@@ -33,3 +34,16 @@
 #define IDC_HOTKEY_EDIT         3003
 #define IDC_HOTKEY_HINT         3004
 #define IDC_HOTKEY_LABEL        3005
+
+#define IDD_FILTERS             3101
+#define IDC_FILTER_ENABLE       3102
+#define IDC_FILTER_LIST         3103
+#define IDC_FILTER_LIST_LABEL   3104
+#define IDC_FILTER_NAME         3105
+#define IDC_FILTER_NAME_LABEL   3106
+#define IDC_FILTER_EXT          3107
+#define IDC_FILTER_EXT_LABEL    3108
+#define IDC_FILTER_HINT         3109
+#define IDC_FILTER_ADD          3110
+#define IDC_FILTER_REMOVE       3111
+#define IDC_FILTER_UPDATE       3112

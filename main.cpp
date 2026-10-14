@@ -1,6 +1,7 @@
 #include "app_messages.h"
 #include "config.h"
 #include "dpi.h"
+#include "filter_dlg.h"
 #include "hotkey.h"
 #include "icon_load.h"
 #include "lang.h"
@@ -16,6 +17,7 @@
 #include <windows.h>
 
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -30,9 +32,27 @@ config::SortMode g_sortMode = config::SortMode::ByTime;
 bool g_showHidden = false;
 bool g_expandFolders = false;
 bool g_watchEnabled = true;
+bool g_showFilters = true;
 bool g_hotkeyEnabled = false;
 std::wstring g_hotkeyText = L"Ctrl+Shift+F";
+std::vector<config::FilterItem> g_filters;
+std::vector<std::wstring> g_activeFilters;
 ULONGLONG g_panelHiddenAt = 0;
+
+void ApplyFiltersToPanel(bool refresh) {
+  g_panel.SetShowFilters(g_showFilters);
+  g_panel.SetFilters(g_filters);
+  g_panel.SetActiveFilters(g_activeFilters);
+  if (refresh && g_panel.IsVisible()) {
+    g_panel.Refresh();
+  }
+}
+
+void PersistFilters() {
+  g_filters = g_panel.Filters();
+  g_activeFilters = g_panel.ActiveFilters();
+  config::SaveFilters(g_filters, g_activeFilters);
+}
 
 void UpdateTrayTip() {
   if (g_watchPath.empty()) {
@@ -276,6 +296,7 @@ void ShowContextMenu(HWND hwnd) {
   AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(langMenu), lang::T(lang::Id::MenuLanguage));
 
   AppendMenuW(menu, MF_STRING, IDM_HOTKEY, lang::T(lang::Id::MenuHotkey));
+  AppendMenuW(menu, MF_STRING, IDM_FILTERS, lang::T(lang::Id::MenuFilters));
   AppendMenuW(menu, MF_STRING, IDM_ABOUT, lang::T(lang::Id::MenuAbout));
   AppendMenuW(menu, MF_STRING, IDM_EXIT, lang::T(lang::Id::MenuExit));
 
@@ -344,6 +365,20 @@ void ShowContextMenu(HWND hwnd) {
       }
       break;
     }
+    case IDM_FILTERS: {
+      bool enabled = g_showFilters;
+      auto filters = g_filters;
+      auto active = g_activeFilters;
+      if (filter_dlg::ShowFiltersDialog(hwnd, enabled, filters, active)) {
+        g_showFilters = enabled;
+        g_filters = std::move(filters);
+        g_activeFilters = std::move(active);
+        config::SaveShowFilters(g_showFilters);
+        config::SaveFilters(g_filters, g_activeFilters);
+        ApplyFiltersToPanel(true);
+      }
+      break;
+    }
     case IDM_ABOUT: {
       const int choice = MessageBoxW(hwnd, lang::T(lang::Id::AboutBody),
                                      lang::T(lang::Id::AboutTitle),
@@ -398,6 +433,10 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
       if (g_panel.IsVisible()) {
         HidePanel();
       }
+      return 0;
+
+    case WM_FILTERS_CHANGED:
+      PersistFilters();
       return 0;
 
     case WM_DIR_CHANGED: {
@@ -493,8 +532,11 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   g_showHidden = settings.showHidden;
   g_expandFolders = settings.expandFolders;
   g_watchEnabled = settings.watchEnabled;
+  g_showFilters = settings.showFilters;
   g_hotkeyEnabled = settings.hotkeyEnabled;
   g_hotkeyText = settings.hotkey.empty() ? L"Ctrl+Shift+F" : settings.hotkey;
+  g_filters = settings.filters;
+  g_activeFilters = settings.activeFilters;
   if (settings.languageConfigured) {
     lang::Set(settings.language);
   } else {
@@ -504,7 +546,10 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   g_panel.SetSortMode(g_sortMode);
   g_panel.SetShowHidden(g_showHidden);
   g_panel.SetExpandFolders(g_expandFolders);
+  ApplyFiltersToPanel(false);
   ApplyWatchPath(settings.watchPath, false);
+  // Persist default filters into config.ini when the file had none yet.
+  config::SaveFilters(g_filters, g_activeFilters);
   if (!hotkey::Apply(g_hwnd, g_hotkeyEnabled, g_hotkeyText) && g_hotkeyEnabled) {
     // Keep running without the hotkey if it conflicts at startup.
     g_hotkeyEnabled = false;
