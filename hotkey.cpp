@@ -1,5 +1,6 @@
 #include "hotkey.h"
 
+#include "lang.h"
 #include "resource.h"
 #include "theme.h"
 
@@ -168,7 +169,17 @@ DialogState* StateFromDlg(HWND dlg) {
 
 void UpdateHotkeyEdit(HWND dlg, const Chord& chord) {
   const std::wstring text = Format(chord);
-  SetDlgItemTextW(dlg, IDC_HOTKEY_EDIT, text.empty() ? L"(press a shortcut)" : text.c_str());
+  SetDlgItemTextW(dlg, IDC_HOTKEY_EDIT,
+                   text.empty() ? lang::T(lang::Id::HotkeyPressShortcut) : text.c_str());
+}
+
+void LocalizeHotkeyDialog(HWND dlg) {
+  SetWindowTextW(dlg, lang::T(lang::Id::HotkeyDialogTitle));
+  SetDlgItemTextW(dlg, IDC_HOTKEY_ENABLE, lang::T(lang::Id::HotkeyEnable));
+  SetDlgItemTextW(dlg, IDC_HOTKEY_LABEL, lang::T(lang::Id::HotkeyShortcutLabel));
+  SetDlgItemTextW(dlg, IDC_HOTKEY_HINT, lang::T(lang::Id::HotkeyHint));
+  SetDlgItemTextW(dlg, IDOK, lang::T(lang::Id::HotkeyOk));
+  SetDlgItemTextW(dlg, IDCANCEL, lang::T(lang::Id::HotkeyCancel));
 }
 
 // Owner is a hidden 0x0 tray window — center on the monitor under the cursor.
@@ -225,6 +236,7 @@ INT_PTR CALLBACK HotkeyDlgProc(HWND dlg, UINT msg, WPARAM wParam, LPARAM lParam)
       auto* state = reinterpret_cast<DialogState*>(lParam);
       SetWindowLongPtrW(dlg, DWLP_USER, reinterpret_cast<LONG_PTR>(state));
       theme::AllowDarkForWindow(dlg, !theme::AppsUseLightTheme());
+      LocalizeHotkeyDialog(dlg);
       CheckDlgButton(dlg, IDC_HOTKEY_ENABLE, state->enabled ? BST_CHECKED : BST_UNCHECKED);
       UpdateHotkeyEdit(dlg, state->chord);
       HWND edit = GetDlgItem(dlg, IDC_HOTKEY_EDIT);
@@ -242,14 +254,13 @@ INT_PTR CALLBACK HotkeyDlgProc(HWND dlg, UINT msg, WPARAM wParam, LPARAM lParam)
         }
         const bool wantEnabled = IsDlgButtonChecked(dlg, IDC_HOTKEY_ENABLE) == BST_CHECKED;
         if (wantEnabled && state->chord.vk == 0) {
-          MessageBoxW(dlg, L"Please set a hotkey first.", L"Hotkey", MB_OK | MB_ICONWARNING);
+          MessageBoxW(dlg, lang::T(lang::Id::HotkeyNeedSet), lang::T(lang::Id::HotkeyDialogTitle),
+                      MB_OK | MB_ICONWARNING);
           return TRUE;
         }
         if (!Apply(state->hotkeyHwnd, wantEnabled, state->chord)) {
-          MessageBoxW(
-              dlg,
-              L"Could not register that hotkey. It may already be in use by another program.",
-              L"Hotkey", MB_OK | MB_ICONERROR);
+          MessageBoxW(dlg, lang::T(lang::Id::HotkeyConflict), lang::T(lang::Id::HotkeyDialogTitle),
+                      MB_OK | MB_ICONERROR);
           Apply(state->hotkeyHwnd, state->previousEnabled, state->previousChord);
           return TRUE;
         }

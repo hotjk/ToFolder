@@ -21,8 +21,8 @@ CAPTION "Hotkey"
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
     CONTROL         "Enable hotkey", IDC_HOTKEY_ENABLE, "Button",
-                    BS_AUTOCHECKBOX | WS_TABSTOP, 12, 12, 120, 12
-    LTEXT           "Shortcut:", IDC_STATIC, 12, 36, 50, 10
+                    BS_AUTOCHECKBOX | WS_TABSTOP, 12, 12, 160, 12
+    LTEXT           "Shortcut:", IDC_HOTKEY_LABEL, 12, 36, 80, 10
     EDITTEXT        IDC_HOTKEY_EDIT, 12, 50, 216, 14, ES_READONLY | ES_AUTOHSCROLL | WS_TABSTOP
     LTEXT           "Click the box, then press a key combination.", IDC_HOTKEY_HINT,
                     12, 70, 216, 10

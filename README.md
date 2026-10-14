@@ -34,6 +34,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 | Show hidden files | Include hidden items |
 | Expand folders | Navigate into subfolders in the panel (`..` and Backspace) |
 | Start with Windows | Launch at sign-in (off by default) |
+| Language | English / 中文 (default English; first run follows OS UI language) |
 | Hotkey... | Enable / change the global hotkey (toggle panel) |
 | About... | Open the GitHub repository |
 | Exit | Quit |
@@ -68,6 +69,7 @@ Hotkey=Ctrl+Shift+F
 | `WatchEnabled` | `true` / `false` | Watch for new files (default on) |
 | `HotkeyEnabled` | `true` / `false` | Register the global hotkey |
 | `Hotkey` | e.g. `Ctrl+Shift+F` | Chord (Ctrl/Alt/Shift/Win + key) |
+| `Language` | `en` / `zh` | UI language (written on first run from OS if unset) |
 
 Tray menu changes are written back to this file.
 
@@ -113,6 +115,7 @@ watcher.cpp       Directory watch and enumeration/sort
 config.cpp        config.ini read/write
 theme.cpp         App/taskbar theme and dark menu APIs
 hotkey.cpp        Global hotkey registration and settings dialog
+lang.cpp          English / Chinese UI strings
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     High-quality icon loading
 assets/           Bootstrap Icons SVGs and black/white ICO scripts

@@ -34,6 +34,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 | Show hidden files | 是否显示隐藏文件 |
 | Expand folders | 在面板内进入子文件夹（含 `..` 与 Backspace） |
 | Start with Windows | 登录时自动启动（默认关闭） |
+| Language | English / 中文（默认英文；首次启动跟随系统 UI 语言） |
 | Hotkey... | 开启/设置全局热键（切换面板） |
 | About... | 打开 GitHub 仓库页面 |
 | Exit | 退出程序 |
@@ -68,6 +69,7 @@ Hotkey=Ctrl+Shift+F
 | `WatchEnabled` | `true` / `false` | 监控新增文件（默认开启） |
 | `HotkeyEnabled` | `true` / `false` | 是否注册全局热键 |
 | `Hotkey` | 如 `Ctrl+Shift+F` | 热键组合（Ctrl/Alt/Shift/Win + 主键） |
+| `Language` | `en` / `zh` | 界面语言（首次启动若未配置则按系统语言写入） |
 
 也可通过托盘菜单修改，选项会写回该文件。
 
@@ -113,6 +115,7 @@ watcher.cpp       目录监控与枚举排序
 config.cpp        读写 config.ini
 theme.cpp         应用/任务栏主题与暗色菜单 API
 hotkey.cpp        全局热键注册与设置对话框
+lang.cpp          英/中界面字符串
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     高质量图标加载
 assets/           Bootstrap Icons SVG、黑/白 ICO 生成脚本

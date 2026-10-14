@@ -2,6 +2,7 @@
 
 #include "app_messages.h"
 #include "dpi.h"
+#include "lang.h"
 #include "resource.h"
 #include "theme.h"
 
@@ -862,7 +863,7 @@ bool PanelWindow::DeleteAt(int index) {
   op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT;
   const int result = SHFileOperationW(&op);
   if (result != 0 || op.fAnyOperationsAborted) {
-    MessageBoxW(hwnd_, L"Failed to delete the item.", L"ToFolder", MB_ICONERROR | MB_OK);
+    MessageBoxW(hwnd_, lang::T(lang::Id::DeleteFailed), L"ToFolder", MB_ICONERROR | MB_OK);
     return false;
   }
 
@@ -934,10 +935,10 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
                         LVIS_SELECTED | LVIS_FOCUSED);
 
   HMENU menu = CreatePopupMenu();
-  AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN, L"Open");
-  AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN_LOCATION, L"Open containing folder");
+  AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN, lang::T(lang::Id::ListOpen));
+  AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN_LOCATION, lang::T(lang::Id::ListOpenLocation));
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING, IDM_LIST_DELETE, L"Delete");
+  AppendMenuW(menu, MF_STRING, IDM_LIST_DELETE, lang::T(lang::Id::ListDelete));
 
   // Popup menus deactivate the owner; don't treat that as an outside dismiss.
   suppressDeactivateHide_ = true;
@@ -1100,11 +1101,11 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
           di->item.pszText[0] = L'\0';
 
           if (items_.empty()) {
-            const wchar_t* msg = L"(Empty folder)";
+            const wchar_t* msg = lang::T(lang::Id::EmptyFolder);
             if (watchPath_.empty()) {
-              msg = L"(Choose a folder from the tray menu)";
+              msg = lang::T(lang::Id::ChooseFolderHint);
             } else if (!DirectoryWatcher::PathExists(watchPath_)) {
-              msg = L"(Path is invalid)";
+              msg = lang::T(lang::Id::PathInvalid);
             }
             wcsncpy_s(di->item.pszText, di->item.cchTextMax, msg, _TRUNCATE);
           } else if (index >= 0 && index < static_cast<int>(items_.size())) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "lang.h"
+
 #include <string>
 
 namespace config {
@@ -17,6 +19,8 @@ struct Settings {
   bool watchEnabled = true;  // monitor folder for new files
   bool hotkeyEnabled = false;
   std::wstring hotkey = L"Ctrl+Shift+F";
+  lang::Language language = lang::Language::English;
+  bool languageConfigured = false;  // false until Language= written once
 };
 
 std::wstring GetExeDirectory();
@@ -37,5 +41,6 @@ bool LoadWatchEnabled();
 bool SaveWatchEnabled(bool enabled);
 bool LoadHotkeyEnabled();
 bool SaveHotkeySettings(bool enabled, const std::wstring& hotkey);
+bool SaveLanguage(lang::Language language);
 
 }  // namespace config

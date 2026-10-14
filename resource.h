@@ -18,9 +18,12 @@
 #define IDM_SHOW_HIDDEN         1007
 #define IDM_EXPAND_FOLDERS      1008
 #define IDM_START_WITH_WINDOWS  1009
-#define IDM_HOTKEY              1010
-#define IDM_ABOUT               1011
-#define IDM_EXIT                1012
+#define IDM_LANGUAGE            1010
+#define IDM_LANG_EN             1011
+#define IDM_LANG_ZH             1012
+#define IDM_HOTKEY              1013
+#define IDM_ABOUT               1014
+#define IDM_EXIT                1015
 
 #define IDM_LIST_OPEN           1101
 #define IDM_LIST_OPEN_LOCATION  1102
@@ -32,3 +35,4 @@
 #define IDC_HOTKEY_ENABLE       3002
 #define IDC_HOTKEY_EDIT         3003
 #define IDC_HOTKEY_HINT         3004
+#define IDC_HOTKEY_LABEL        3005

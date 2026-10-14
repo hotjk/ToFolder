@@ -3,6 +3,7 @@
 #include "dpi.h"
 #include "hotkey.h"
 #include "icon_load.h"
+#include "lang.h"
 #include "panel.h"
 #include "resource.h"
 #include "theme.h"
@@ -35,13 +36,25 @@ ULONGLONG g_panelHiddenAt = 0;
 
 void UpdateTrayTip() {
   if (g_watchPath.empty()) {
-    g_tray.SetTip(L"ToFolder - No folder selected");
+    g_tray.SetTip(lang::T(lang::Id::TipNoFolder));
   } else {
-    std::wstring tip = L"ToFolder - " + g_watchPath;
+    std::wstring tip = lang::T(lang::Id::TipPrefix);
+    tip += g_watchPath;
     if (tip.size() > 120) {
       tip = tip.substr(0, 117) + L"...";
     }
     g_tray.SetTip(tip);
+  }
+}
+
+void ApplyLanguage(lang::Language language, bool save) {
+  lang::Set(language);
+  if (save) {
+    config::SaveLanguage(language);
+  }
+  UpdateTrayTip();
+  if (g_panel.IsVisible()) {
+    g_panel.Refresh();
   }
 }
 
@@ -60,7 +73,7 @@ bool ChooseFolder(HWND owner, std::wstring& outPath) {
   DWORD options = 0;
   dialog->GetOptions(&options);
   dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-  dialog->SetTitle(L"Select folder to watch");
+  dialog->SetTitle(lang::T(lang::Id::SelectFolderTitle));
 
   hr = dialog->Show(owner);
   bool ok = false;
@@ -214,48 +227,57 @@ void ShowContextMenu(HWND hwnd) {
   POINT pt = {};
   GetCursorPos(&pt);
   HMENU menu = CreatePopupMenu();
-  AppendMenuW(menu, MF_STRING, IDM_OPEN_PANEL, L"Open panel");
-  AppendMenuW(menu, MF_STRING, IDM_OPEN_FOLDER, L"Open folder");
+  AppendMenuW(menu, MF_STRING, IDM_OPEN_PANEL, lang::T(lang::Id::MenuOpenPanel));
+  AppendMenuW(menu, MF_STRING, IDM_OPEN_FOLDER, lang::T(lang::Id::MenuOpenFolder));
   if (!HasWatchFolder()) {
     EnableMenuItem(menu, IDM_OPEN_PANEL, MF_BYCOMMAND | MF_GRAYED);
     EnableMenuItem(menu, IDM_OPEN_FOLDER, MF_BYCOMMAND | MF_GRAYED);
   }
-  AppendMenuW(menu, MF_STRING, IDM_CHOOSE_FOLDER, L"Choose folder...");
+  AppendMenuW(menu, MF_STRING, IDM_CHOOSE_FOLDER, lang::T(lang::Id::MenuChooseFolder));
   AppendMenuW(
       menu,
       MF_STRING | (g_watchEnabled ? MF_CHECKED : MF_UNCHECKED),
       IDM_WATCH_ENABLED,
-      L"Watch for new files");
+      lang::T(lang::Id::MenuWatchNewFiles));
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(
       menu,
       MF_STRING | (g_sortMode == config::SortMode::ByTime ? MF_CHECKED : MF_UNCHECKED),
       IDM_SORT_TIME,
-      L"Sort by time");
+      lang::T(lang::Id::MenuSortByTime));
   AppendMenuW(
       menu,
       MF_STRING | (g_sortMode == config::SortMode::ByName ? MF_CHECKED : MF_UNCHECKED),
       IDM_SORT_NAME,
-      L"Sort by name");
+      lang::T(lang::Id::MenuSortByName));
   AppendMenuW(
       menu,
       MF_STRING | (g_showHidden ? MF_CHECKED : MF_UNCHECKED),
       IDM_SHOW_HIDDEN,
-      L"Show hidden files");
+      lang::T(lang::Id::MenuShowHidden));
   AppendMenuW(
       menu,
       MF_STRING | (g_expandFolders ? MF_CHECKED : MF_UNCHECKED),
       IDM_EXPAND_FOLDERS,
-      L"Expand folders");
+      lang::T(lang::Id::MenuExpandFolders));
   AppendMenuW(
       menu,
       MF_STRING | (IsStartWithWindows() ? MF_CHECKED : MF_UNCHECKED),
       IDM_START_WITH_WINDOWS,
-      L"Start with Windows");
+      lang::T(lang::Id::MenuStartWithWindows));
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING, IDM_HOTKEY, L"Hotkey...");
-  AppendMenuW(menu, MF_STRING, IDM_ABOUT, L"About...");
-  AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Exit");
+
+  HMENU langMenu = CreatePopupMenu();
+  const bool langEn = lang::Current() == lang::Language::English;
+  AppendMenuW(langMenu, MF_STRING | (langEn ? MF_CHECKED : MF_UNCHECKED), IDM_LANG_EN,
+              lang::T(lang::Id::MenuLangEnglish));
+  AppendMenuW(langMenu, MF_STRING | (!langEn ? MF_CHECKED : MF_UNCHECKED), IDM_LANG_ZH,
+              lang::T(lang::Id::MenuLangChinese));
+  AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(langMenu), lang::T(lang::Id::MenuLanguage));
+
+  AppendMenuW(menu, MF_STRING, IDM_HOTKEY, lang::T(lang::Id::MenuHotkey));
+  AppendMenuW(menu, MF_STRING, IDM_ABOUT, lang::T(lang::Id::MenuAbout));
+  AppendMenuW(menu, MF_STRING, IDM_EXIT, lang::T(lang::Id::MenuExit));
 
   theme::PreparePopupMenu(hwnd);
   SetForegroundWindow(hwnd);
@@ -300,9 +322,15 @@ void ShowContextMenu(HWND hwnd) {
       break;
     case IDM_START_WITH_WINDOWS:
       if (!SetStartWithWindows(!IsStartWithWindows())) {
-        MessageBoxW(hwnd, L"Could not update the Windows startup setting.", L"ToFolder",
+        MessageBoxW(hwnd, lang::T(lang::Id::StartupUpdateFailed), L"ToFolder",
                     MB_OK | MB_ICONERROR);
       }
+      break;
+    case IDM_LANG_EN:
+      ApplyLanguage(lang::Language::English, true);
+      break;
+    case IDM_LANG_ZH:
+      ApplyLanguage(lang::Language::Chinese, true);
       break;
     case IDM_HOTKEY: {
       bool enabled = g_hotkeyEnabled;
@@ -317,11 +345,9 @@ void ShowContextMenu(HWND hwnd) {
       break;
     }
     case IDM_ABOUT: {
-      const int choice = MessageBoxW(
-          hwnd,
-          L"ToFolder\n\nGitHub:\nhttps://github.com/hotjk/ToFolder\n\nOpen the repository in your browser?",
-          L"About ToFolder",
-          MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1);
+      const int choice = MessageBoxW(hwnd, lang::T(lang::Id::AboutBody),
+                                     lang::T(lang::Id::AboutTitle),
+                                     MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1);
       if (choice == IDYES) {
         ShellExecuteW(hwnd, L"open", kGitHubRepoUrl, nullptr, nullptr, SW_SHOWNORMAL);
       }
@@ -469,6 +495,12 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   g_watchEnabled = settings.watchEnabled;
   g_hotkeyEnabled = settings.hotkeyEnabled;
   g_hotkeyText = settings.hotkey.empty() ? L"Ctrl+Shift+F" : settings.hotkey;
+  if (settings.languageConfigured) {
+    lang::Set(settings.language);
+  } else {
+    // First launch: follow OS UI language, then persist (default English otherwise).
+    ApplyLanguage(lang::DetectOs(), true);
+  }
   g_panel.SetSortMode(g_sortMode);
   g_panel.SetShowHidden(g_showHidden);
   g_panel.SetExpandFolders(g_expandFolders);

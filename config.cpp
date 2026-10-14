@@ -116,6 +116,18 @@ Settings Load() {
       if (!value.empty()) {
         settings.hotkey = value;
       }
+      continue;
+    }
+    const std::wstring langKey = L"Language=";
+    if (line.compare(0, langKey.size(), langKey) == 0) {
+      const std::wstring value = Trim(line.substr(langKey.size()));
+      settings.languageConfigured = true;
+      if (_wcsicmp(value.c_str(), L"zh") == 0 || _wcsicmp(value.c_str(), L"zh-CN") == 0 ||
+          _wcsicmp(value.c_str(), L"chinese") == 0) {
+        settings.language = lang::Language::Chinese;
+      } else {
+        settings.language = lang::Language::English;
+      }
     }
   }
   return settings;
@@ -134,6 +146,7 @@ bool Save(const Settings& settings) {
   out << L"WatchEnabled=" << (settings.watchEnabled ? L"true" : L"false") << L"\n";
   out << L"HotkeyEnabled=" << (settings.hotkeyEnabled ? L"true" : L"false") << L"\n";
   out << L"Hotkey=" << settings.hotkey << L"\n";
+  out << L"Language=" << (settings.language == lang::Language::Chinese ? L"zh" : L"en") << L"\n";
   return static_cast<bool>(out);
 }
 
@@ -197,6 +210,13 @@ bool SaveHotkeySettings(bool enabled, const std::wstring& hotkey) {
   if (!hotkey.empty()) {
     settings.hotkey = hotkey;
   }
+  return Save(settings);
+}
+
+bool SaveLanguage(lang::Language language) {
+  Settings settings = Load();
+  settings.language = language;
+  settings.languageConfigured = true;
   return Save(settings);
 }
 
