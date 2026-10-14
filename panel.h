@@ -30,6 +30,10 @@ class PanelWindow {
   bool ShowHidden() const { return showHidden_; }
   void SetExpandFolders(bool expandFolders);
   bool ExpandFolders() const { return expandFolders_; }
+  void SetFontSize(config::FontSize size);
+  config::FontSize FontSize() const { return fontSize_; }
+  void SetPanelSize(config::PanelSize size);
+  config::PanelSize PanelSize() const { return panelSize_; }
   void SetShowFilters(bool showFilters);
   bool ShowFilters() const { return showFilters_; }
   void SetFilters(const std::vector<config::FilterItem>& filters);
@@ -109,6 +113,8 @@ class PanelWindow {
   bool expandFolders_ = true;
   bool showFilters_ = true;
   bool pinned_ = false;
+  config::FontSize fontSize_ = config::FontSize::Small;
+  config::PanelSize panelSize_ = config::PanelSize::Small;
   std::vector<config::FilterItem> filters_;
   std::vector<std::wstring> activeFilters_;
   std::vector<RECT> filterChipRects_;

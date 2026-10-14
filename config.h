@@ -12,6 +12,18 @@ enum class SortMode {
   ByName = 1,
 };
 
+enum class FontSize {
+  Small = 0,   // current default
+  Medium = 1,
+  Large = 2,
+};
+
+enum class PanelSize {
+  Small = 0,   // current default width
+  Medium = 1,
+  Large = 2,
+};
+
 // Special FilterItem::extensions values (not real extensions):
 //   "*"  — match all files
 //   "/"  — match folders
@@ -30,6 +42,8 @@ inline bool IsFoldersFilter(const FilterItem& item) {
 struct Settings {
   std::wstring watchPath;
   SortMode sortMode = SortMode::ByTime;
+  FontSize fontSize = FontSize::Small;
+  PanelSize panelSize = PanelSize::Small;
   bool showHidden = false;
   bool expandFolders = true;
   bool watchEnabled = true;  // monitor folder for new files
@@ -57,6 +71,10 @@ std::wstring LoadWatchPath();
 bool SaveWatchPath(const std::wstring& path);
 SortMode LoadSortMode();
 bool SaveSortMode(SortMode mode);
+FontSize LoadFontSize();
+bool SaveFontSize(FontSize size);
+PanelSize LoadPanelSize();
+bool SavePanelSize(PanelSize size);
 bool LoadShowHidden();
 bool SaveShowHidden(bool showHidden);
 bool LoadExpandFolders();

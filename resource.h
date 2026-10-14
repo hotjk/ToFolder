@@ -18,10 +18,18 @@
 #define IDM_LANGUAGE            1010
 #define IDM_LANG_EN             1011
 #define IDM_LANG_ZH             1012
-#define IDM_HOTKEY              1013
-#define IDM_FILTERS             1014
-#define IDM_ABOUT               1015
-#define IDM_EXIT                1016
+#define IDM_FONT_SIZE           1013
+#define IDM_FONT_SMALL          1014
+#define IDM_FONT_MEDIUM         1015
+#define IDM_FONT_LARGE          1016
+#define IDM_PANEL_SIZE          1017
+#define IDM_PANEL_SMALL         1018
+#define IDM_PANEL_MEDIUM        1019
+#define IDM_PANEL_LARGE         1020
+#define IDM_HOTKEY              1021
+#define IDM_FILTERS             1022
+#define IDM_ABOUT               1023
+#define IDM_EXIT                1024
 
 #define IDM_LIST_OPEN           1101
 #define IDM_LIST_OPEN_LOCATION  1102

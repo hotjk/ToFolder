@@ -43,11 +43,17 @@
 
 namespace {
 
-constexpr int kPanelWidth96 = 360;
+constexpr int kPanelWidthSmall96 = 360;
+constexpr int kPanelWidthMedium96 = 440;
+constexpr int kPanelWidthLarge96 = 520;
 constexpr int kPanelMargin96 = 12;
 constexpr int kPanelPadding96 = 12;
-constexpr int kRowHeight96 = 28;
-constexpr int kChipHeight96 = 20;
+constexpr int kRowHeightSmall96 = 28;
+constexpr int kRowHeightMedium96 = 32;
+constexpr int kRowHeightLarge96 = 38;
+constexpr int kChipHeightSmall96 = 20;
+constexpr int kChipHeightMedium96 = 24;
+constexpr int kChipHeightLarge96 = 28;
 constexpr int kChipPadX96 = 6;
 constexpr int kChipGapX96 = 10;
 constexpr int kChipGapY96 = 6;
@@ -411,7 +417,13 @@ UINT PanelWindow::CurrentDpi() const {
 }
 
 int PanelWindow::PanelWidthPx() const {
-  return dpi::Scale(kPanelWidth96, CurrentDpi());
+  int width96 = kPanelWidthSmall96;
+  if (panelSize_ == config::PanelSize::Medium) {
+    width96 = kPanelWidthMedium96;
+  } else if (panelSize_ == config::PanelSize::Large) {
+    width96 = kPanelWidthLarge96;
+  }
+  return dpi::Scale(width96, CurrentDpi());
 }
 
 int PanelWindow::RowHeightPx() const {
@@ -424,7 +436,23 @@ int PanelWindow::RowHeightPx() const {
       }
     }
   }
-  return dpi::Scale(kRowHeight96, CurrentDpi());
+  int row96 = kRowHeightSmall96;
+  if (fontSize_ == config::FontSize::Medium) {
+    row96 = kRowHeightMedium96;
+  } else if (fontSize_ == config::FontSize::Large) {
+    row96 = kRowHeightLarge96;
+  }
+  return dpi::Scale(row96, CurrentDpi());
+}
+
+int ChipHeightForFont(config::FontSize size, UINT dpi) {
+  int chip96 = kChipHeightSmall96;
+  if (size == config::FontSize::Medium) {
+    chip96 = kChipHeightMedium96;
+  } else if (size == config::FontSize::Large) {
+    chip96 = kChipHeightLarge96;
+  }
+  return dpi::Scale(chip96, dpi);
 }
 
 bool PanelWindow::HasFilterBar() const {
@@ -507,7 +535,7 @@ void PanelWindow::EnsureFont() {
     DeleteObject(listFont_);
     listFont_ = nullptr;
   }
-  listFont_ = dpi::CreateUiFont(CurrentDpi());
+  listFont_ = dpi::CreateUiFont(CurrentDpi(), fontSize_);
   if (listView_ && listFont_) {
     SendMessageW(listView_, WM_SETFONT, reinterpret_cast<WPARAM>(listFont_), TRUE);
   }
@@ -682,7 +710,7 @@ void PanelWindow::ComputeFilterChipLayout(std::vector<RECT>* outRects, int* outB
   GetClientRect(hwnd_, &rc);
   const UINT dpi = CurrentDpi();
   const int pad = dpi::Scale(kPanelPadding96, dpi);
-  const int chipH = dpi::Scale(kChipHeight96, dpi);
+  const int chipH = ChipHeightForFont(fontSize_, dpi);
   const int chipPadX = dpi::Scale(kChipPadX96, dpi);
   const int gapX = dpi::Scale(kChipGapX96, dpi);
   const int gapY = dpi::Scale(kChipGapY96, dpi);
@@ -834,6 +862,27 @@ void PanelWindow::SetExpandFolders(bool expandFolders) {
 
 void PanelWindow::SetShowFilters(bool showFilters) {
   showFilters_ = showFilters;
+}
+
+void PanelWindow::SetFontSize(config::FontSize size) {
+  if (fontSize_ == size) {
+    return;
+  }
+  fontSize_ = size;
+  EnsureFont();
+  if (IsVisible()) {
+    Refresh();
+  }
+}
+
+void PanelWindow::SetPanelSize(config::PanelSize size) {
+  if (panelSize_ == size) {
+    return;
+  }
+  panelSize_ = size;
+  if (IsVisible()) {
+    Refresh();
+  }
 }
 
 void PanelWindow::SetFilters(const std::vector<config::FilterItem>& filters) {

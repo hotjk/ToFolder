@@ -29,6 +29,8 @@ PanelWindow g_panel;
 DirectoryWatcher g_watcher;
 std::wstring g_watchPath;
 config::SortMode g_sortMode = config::SortMode::ByTime;
+config::FontSize g_fontSize = config::FontSize::Small;
+config::PanelSize g_panelSize = config::PanelSize::Small;
 bool g_showHidden = false;
 bool g_expandFolders = true;
 bool g_watchEnabled = true;
@@ -180,6 +182,22 @@ void ApplyExpandFolders(bool expandFolders, bool save) {
   }
 }
 
+void ApplyFontSize(config::FontSize size, bool save) {
+  g_fontSize = size;
+  g_panel.SetFontSize(g_fontSize);
+  if (save) {
+    config::SaveFontSize(g_fontSize);
+  }
+}
+
+void ApplyPanelSize(config::PanelSize size, bool save) {
+  g_panelSize = size;
+  g_panel.SetPanelSize(g_panelSize);
+  if (save) {
+    config::SavePanelSize(g_panelSize);
+  }
+}
+
 bool HasWatchFolder() {
   return DirectoryWatcher::PathExists(g_watchPath);
 }
@@ -295,6 +313,34 @@ void ShowContextMenu(HWND hwnd) {
               lang::T(lang::Id::MenuLangChinese));
   AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(langMenu), lang::T(lang::Id::MenuLanguage));
 
+  HMENU fontMenu = CreatePopupMenu();
+  AppendMenuW(fontMenu,
+              MF_STRING | (g_fontSize == config::FontSize::Small ? MF_CHECKED : MF_UNCHECKED),
+              IDM_FONT_SMALL, lang::T(lang::Id::MenuFontSmall));
+  AppendMenuW(fontMenu,
+              MF_STRING | (g_fontSize == config::FontSize::Medium ? MF_CHECKED : MF_UNCHECKED),
+              IDM_FONT_MEDIUM, lang::T(lang::Id::MenuFontMedium));
+  AppendMenuW(fontMenu,
+              MF_STRING | (g_fontSize == config::FontSize::Large ? MF_CHECKED : MF_UNCHECKED),
+              IDM_FONT_LARGE, lang::T(lang::Id::MenuFontLarge));
+  AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(fontMenu), lang::T(lang::Id::MenuFontSize));
+
+  HMENU panelSizeMenu = CreatePopupMenu();
+  AppendMenuW(
+      panelSizeMenu,
+      MF_STRING | (g_panelSize == config::PanelSize::Small ? MF_CHECKED : MF_UNCHECKED),
+      IDM_PANEL_SMALL, lang::T(lang::Id::MenuPanelSmall));
+  AppendMenuW(
+      panelSizeMenu,
+      MF_STRING | (g_panelSize == config::PanelSize::Medium ? MF_CHECKED : MF_UNCHECKED),
+      IDM_PANEL_MEDIUM, lang::T(lang::Id::MenuPanelMedium));
+  AppendMenuW(
+      panelSizeMenu,
+      MF_STRING | (g_panelSize == config::PanelSize::Large ? MF_CHECKED : MF_UNCHECKED),
+      IDM_PANEL_LARGE, lang::T(lang::Id::MenuPanelLarge));
+  AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(panelSizeMenu),
+              lang::T(lang::Id::MenuPanelSize));
+
   AppendMenuW(menu, MF_STRING, IDM_HOTKEY, lang::T(lang::Id::MenuHotkey));
   AppendMenuW(menu, MF_STRING, IDM_FILTERS, lang::T(lang::Id::MenuFilters));
   AppendMenuW(menu, MF_STRING, IDM_ABOUT, lang::T(lang::Id::MenuAbout));
@@ -352,6 +398,24 @@ void ShowContextMenu(HWND hwnd) {
       break;
     case IDM_LANG_ZH:
       ApplyLanguage(lang::Language::Chinese, true);
+      break;
+    case IDM_FONT_SMALL:
+      ApplyFontSize(config::FontSize::Small, true);
+      break;
+    case IDM_FONT_MEDIUM:
+      ApplyFontSize(config::FontSize::Medium, true);
+      break;
+    case IDM_FONT_LARGE:
+      ApplyFontSize(config::FontSize::Large, true);
+      break;
+    case IDM_PANEL_SMALL:
+      ApplyPanelSize(config::PanelSize::Small, true);
+      break;
+    case IDM_PANEL_MEDIUM:
+      ApplyPanelSize(config::PanelSize::Medium, true);
+      break;
+    case IDM_PANEL_LARGE:
+      ApplyPanelSize(config::PanelSize::Large, true);
       break;
     case IDM_HOTKEY: {
       bool enabled = g_hotkeyEnabled;
@@ -529,6 +593,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
   const config::Settings settings = config::Load();
   g_sortMode = settings.sortMode;
+  g_fontSize = settings.fontSize;
+  g_panelSize = settings.panelSize;
   g_showHidden = settings.showHidden;
   g_expandFolders = settings.expandFolders;
   g_watchEnabled = settings.watchEnabled;
@@ -544,6 +610,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     ApplyLanguage(lang::DetectOs(), true);
   }
   g_panel.SetSortMode(g_sortMode);
+  g_panel.SetFontSize(g_fontSize);
+  g_panel.SetPanelSize(g_panelSize);
   g_panel.SetShowHidden(g_showHidden);
   g_panel.SetExpandFolders(g_expandFolders);
   ApplyFiltersToPanel(false);

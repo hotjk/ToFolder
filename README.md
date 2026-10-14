@@ -36,6 +36,8 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 | Expand folders | Navigate into subfolders in the panel (`..` and Backspace) |
 | Start with Windows | Launch at sign-in (off by default) |
 | Language | English / 中文 (default English; first run follows OS UI language) |
+| Font size | Small / Medium / Large (default Small = current size) |
+| Panel size | Small / Medium / Large (default Small = current width) |
 | Hotkey... | Enable / change the global hotkey (toggle panel) |
 | Filters... | Enable filters and edit filter groups |
 | About... | Open the GitHub repository |
@@ -65,6 +67,8 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 ```ini
 WatchPath=
 SortMode=time
+FontSize=small
+PanelSize=small
 ShowHidden=false
 ExpandFolders=true
 WatchEnabled=true
@@ -89,6 +93,8 @@ ActiveFilters=
 |-----|--------|-------------|
 | `WatchPath` | path | Folder to watch; empty if unset |
 | `SortMode` | `time` / `name` | List sort |
+| `FontSize` | `small` / `medium` / `large` | Panel list font size (default small) |
+| `PanelSize` | `small` / `medium` / `large` | Panel width (default small = 360px @96dpi) |
 | `ShowHidden` | `true` / `false` | Show hidden files |
 | `ExpandFolders` | `true` / `false` | In-panel folder navigation (default on) |
 | `WatchEnabled` | `true` / `false` | Watch for new files (default on) |

@@ -36,6 +36,8 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 | Expand folders | 在面板内进入子文件夹（含 `..` 与 Backspace） |
 | Start with Windows | 登录时自动启动（默认关闭） |
 | Language | English / 中文（默认英文；首次启动跟随系统 UI 语言） |
+| 字体大小 | 小 / 中 / 大（默认小，即当前字号） |
+| 面板大小 | 小 / 中 / 大（默认小，即当前宽度） |
 | Hotkey... | 开启/设置全局热键（切换面板） |
 | 过滤... | 启用过滤并编辑过滤组 |
 | About... | 打开 GitHub 仓库页面 |
@@ -65,6 +67,8 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 ```ini
 WatchPath=
 SortMode=time
+FontSize=small
+PanelSize=small
 ShowHidden=false
 ExpandFolders=true
 WatchEnabled=true
@@ -89,6 +93,8 @@ ActiveFilters=
 |----|------|------|
 | `WatchPath` | 路径 | 监控文件夹；空表示未选择 |
 | `SortMode` | `time` / `name` | 列表排序 |
+| `FontSize` | `small` / `medium` / `large` | 面板列表字号（默认 small） |
+| `PanelSize` | `small` / `medium` / `large` | 面板宽度（默认 small = 360px @96dpi） |
 | `ShowHidden` | `true` / `false` | 显示隐藏文件 |
 | `ExpandFolders` | `true` / `false` | 面板内展开进入子目录（默认开启） |
 | `WatchEnabled` | `true` / `false` | 监控新增文件（默认开启） |

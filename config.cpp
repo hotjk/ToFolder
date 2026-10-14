@@ -33,6 +33,52 @@ const wchar_t* SortModeToString(SortMode mode) {
   return mode == SortMode::ByName ? L"name" : L"time";
 }
 
+FontSize ParseFontSize(const std::wstring& value) {
+  const std::wstring v = Trim(value);
+  if (_wcsicmp(v.c_str(), L"medium") == 0 || _wcsicmp(v.c_str(), L"mid") == 0) {
+    return FontSize::Medium;
+  }
+  if (_wcsicmp(v.c_str(), L"large") == 0 || _wcsicmp(v.c_str(), L"big") == 0) {
+    return FontSize::Large;
+  }
+  return FontSize::Small;
+}
+
+const wchar_t* FontSizeToString(FontSize size) {
+  switch (size) {
+    case FontSize::Medium:
+      return L"medium";
+    case FontSize::Large:
+      return L"large";
+    case FontSize::Small:
+    default:
+      return L"small";
+  }
+}
+
+PanelSize ParsePanelSize(const std::wstring& value) {
+  const std::wstring v = Trim(value);
+  if (_wcsicmp(v.c_str(), L"medium") == 0 || _wcsicmp(v.c_str(), L"mid") == 0) {
+    return PanelSize::Medium;
+  }
+  if (_wcsicmp(v.c_str(), L"large") == 0 || _wcsicmp(v.c_str(), L"big") == 0) {
+    return PanelSize::Large;
+  }
+  return PanelSize::Small;
+}
+
+const wchar_t* PanelSizeToString(PanelSize size) {
+  switch (size) {
+    case PanelSize::Medium:
+      return L"medium";
+    case PanelSize::Large:
+      return L"large";
+    case PanelSize::Small:
+    default:
+      return L"small";
+  }
+}
+
 bool ParseBool(const std::wstring& value, bool defaultValue) {
   const std::wstring v = Trim(value);
   if (v.empty()) {
@@ -226,6 +272,14 @@ Settings Load() {
       settings.sortMode = ParseSortMode(value);
       continue;
     }
+    if (StartsWithKey(line, L"FontSize=", value)) {
+      settings.fontSize = ParseFontSize(value);
+      continue;
+    }
+    if (StartsWithKey(line, L"PanelSize=", value)) {
+      settings.panelSize = ParsePanelSize(value);
+      continue;
+    }
     if (StartsWithKey(line, L"ShowHidden=", value)) {
       settings.showHidden = ParseBool(value, false);
       continue;
@@ -328,6 +382,8 @@ bool Save(const Settings& settings) {
   }
   out << L"WatchPath=" << settings.watchPath << L"\n";
   out << L"SortMode=" << SortModeToString(settings.sortMode) << L"\n";
+  out << L"FontSize=" << FontSizeToString(settings.fontSize) << L"\n";
+  out << L"PanelSize=" << PanelSizeToString(settings.panelSize) << L"\n";
   out << L"ShowHidden=" << (settings.showHidden ? L"true" : L"false") << L"\n";
   out << L"ExpandFolders=" << (settings.expandFolders ? L"true" : L"false") << L"\n";
   out << L"WatchEnabled=" << (settings.watchEnabled ? L"true" : L"false") << L"\n";
@@ -362,6 +418,26 @@ SortMode LoadSortMode() {
 bool SaveSortMode(SortMode mode) {
   Settings settings = Load();
   settings.sortMode = mode;
+  return Save(settings);
+}
+
+FontSize LoadFontSize() {
+  return Load().fontSize;
+}
+
+bool SaveFontSize(FontSize size) {
+  Settings settings = Load();
+  settings.fontSize = size;
+  return Save(settings);
+}
+
+PanelSize LoadPanelSize() {
+  return Load().panelSize;
+}
+
+bool SavePanelSize(PanelSize size) {
+  Settings settings = Load();
+  settings.panelSize = size;
   return Save(settings);
 }
 

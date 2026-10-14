@@ -76,7 +76,22 @@ int TrayIconPx(UINT dpi) {
   return Scale(16, dpi);
 }
 
-HFONT CreateUiFont(UINT dpi) {
+HFONT CreateUiFont(UINT dpi, config::FontSize size) {
+  // Relative to system message font (Small = current default).
+  int percent = 100;
+  switch (size) {
+    case config::FontSize::Medium:
+      percent = 125;
+      break;
+    case config::FontSize::Large:
+      percent = 150;
+      break;
+    case config::FontSize::Small:
+    default:
+      percent = 100;
+      break;
+  }
+
   NONCLIENTMETRICSW ncm = {};
   ncm.cbSize = sizeof(ncm);
 
@@ -90,10 +105,15 @@ HFONT CreateUiFont(UINT dpi) {
     ok = SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
   }
   if (ok) {
-    return CreateFontIndirectW(&ncm.lfMessageFont);
+    LOGFONTW lf = ncm.lfMessageFont;
+    const int base = lf.lfHeight == 0 ? Scale(9, dpi) : abs(lf.lfHeight);
+    const int scaled = MulDiv(base, percent, 100);
+    lf.lfHeight = lf.lfHeight < 0 ? -scaled : scaled;
+    return CreateFontIndirectW(&lf);
   }
 
-  const int px = -Scale(9, dpi);
+  const int pt = MulDiv(9, percent, 100);
+  const int px = -Scale(pt, dpi);
   return CreateFontW(px, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                      OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                      DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
