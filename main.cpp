@@ -621,7 +621,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   g_panel.SetExpandFolders(g_expandFolders);
   ApplyFiltersToPanel(false);
   ApplyWatchPath(settings.watchPath, false);
-  // Persist default filters into config.ini when the file had none yet.
+  // Persist default filters into the exe-named .ini when the file had none yet.
   config::SaveFilters(g_filters, g_activeFilters);
   if (!hotkey::Apply(g_hwnd, g_hotkeyEnabled, g_hotkeyText) && g_hotkeyEnabled) {
     // Keep running without the hotkey if it conflicts at startup.

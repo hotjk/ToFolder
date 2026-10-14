@@ -100,7 +100,7 @@ constexpr Strings kStrings[static_cast<int>(Id::Count)] = {
      L"\r\n"
      L"Settings\r\n"
      L"• Font size / Panel size, language, hotkey, Start with Windows — all in the tray menu.\r\n"
-     L"• Options are saved next to the exe in config.ini.",
+     L"• Options are saved next to the exe as <exe-name>.ini.",
      L"ToFolder — 快速帮助\r\n"
      L"\r\n"
      L"基本\r\n"
@@ -121,7 +121,7 @@ constexpr Strings kStrings[static_cast<int>(Id::Count)] = {
      L"\r\n"
      L"设置\r\n"
      L"• 字体大小 / 面板大小、语言、热键、开机自启等均在托盘菜单。\r\n"
-     L"• 选项保存在程序同目录的 config.ini。"},
+     L"• 选项保存在程序同目录的同名 .ini 文件（如 ToFolder.ini）。"},
 };
 
 }  // namespace

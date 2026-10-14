@@ -63,7 +63,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 
 ## 配置
 
-程序同目录下的 `config.ini`：
+程序同目录下的同名 `.ini`（如 `ToFolder.ini`）：
 
 ```ini
 WatchPath=
@@ -129,7 +129,7 @@ build.bat
 产物：
 
 - `out\ToFolder.exe`
-- `out\config.ini`
+- `out\ToFolder.ini`
 
 ## 使用
 
@@ -148,7 +148,7 @@ main.cpp          入口、托盘消息、菜单、主题切换
 tray.cpp          托盘图标与深浅色状态
 panel.cpp         右侧滑出面板、列表、导航与右键菜单
 watcher.cpp       目录监控与枚举排序
-config.cpp        读写 config.ini
+config.cpp        读写与 exe 同名的 .ini
 theme.cpp         应用/任务栏主题与暗色菜单 API
 hotkey.cpp        全局热键注册与设置对话框
 filter_dlg.cpp    过滤组配置对话框

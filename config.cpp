@@ -225,13 +225,17 @@ void PruneActiveFilters(const std::vector<FilterItem>& filters,
   activeFilters = std::move(unique);
 }
 
-std::wstring GetExeDirectory() {
+std::wstring GetExePath() {
   wchar_t buf[MAX_PATH] = {};
   DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
   if (n == 0 || n >= MAX_PATH) {
-    return L".";
+    return L"ToFolder.exe";
   }
-  std::wstring path(buf, n);
+  return std::wstring(buf, n);
+}
+
+std::wstring GetExeDirectory() {
+  const std::wstring path = GetExePath();
   size_t pos = path.find_last_of(L"\\/");
   if (pos == std::wstring::npos) {
     return L".";
@@ -240,14 +244,33 @@ std::wstring GetExeDirectory() {
 }
 
 std::wstring GetConfigPath() {
-  return GetExeDirectory() + L"\\config.ini";
+  // Same directory and base name as the executable, with .ini extension.
+  const std::wstring exe = GetExePath();
+  const size_t slash = exe.find_last_of(L"\\/");
+  const size_t dot = exe.find_last_of(L'.');
+  if (dot != std::wstring::npos && (slash == std::wstring::npos || dot > slash)) {
+    return exe.substr(0, dot) + L".ini";
+  }
+  return exe + L".ini";
+}
+
+bool FileExists(const std::wstring& path) {
+  const DWORD attrs = GetFileAttributesW(path.c_str());
+  return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
 Settings Load() {
   Settings settings;
   settings.filters = DefaultFilters();
 
-  const std::wstring path = GetConfigPath();
+  std::wstring path = GetConfigPath();
+  // Legacy fallback: older builds used config.ini next to the exe.
+  if (!FileExists(path)) {
+    const std::wstring legacy = GetExeDirectory() + L"\\config.ini";
+    if (FileExists(legacy)) {
+      path = legacy;
+    }
+  }
   std::wifstream in(path);
   if (!in) {
     return settings;

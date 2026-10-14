@@ -63,7 +63,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 
 ## Configuration
 
-`config.ini` next to the executable:
+`<exe-name>.ini` next to the executable (e.g. `ToFolder.ini`):
 
 ```ini
 WatchPath=
@@ -129,7 +129,7 @@ build.bat
 Output:
 
 - `out\ToFolder.exe`
-- `out\config.ini`
+- `out\ToFolder.ini`
 
 ## Usage
 
@@ -148,7 +148,7 @@ main.cpp          Entry, tray messages, menus, theme refresh
 tray.cpp          Tray icon and light/dark variants
 panel.cpp         Slide-out panel, list, navigation, context menu
 watcher.cpp       Directory watch and enumeration/sort
-config.cpp        config.ini read/write
+config.cpp        exe-named .ini read/write
 theme.cpp         App/taskbar theme and dark menu APIs
 hotkey.cpp        Global hotkey registration and settings dialog
 filter_dlg.cpp    Filter group editor dialog
