@@ -31,7 +31,7 @@ struct Settings {
   std::wstring watchPath;
   SortMode sortMode = SortMode::ByTime;
   bool showHidden = false;
-  bool expandFolders = false;
+  bool expandFolders = true;
   bool watchEnabled = true;  // monitor folder for new files
   bool showFilters = true;   // show filter chips on the panel
   bool hotkeyEnabled = false;

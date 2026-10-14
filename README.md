@@ -66,7 +66,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 WatchPath=
 SortMode=time
 ShowHidden=false
-ExpandFolders=false
+ExpandFolders=true
 WatchEnabled=true
 ShowFilters=true
 HotkeyEnabled=false
@@ -90,7 +90,7 @@ ActiveFilters=
 | `WatchPath` | path | Folder to watch; empty if unset |
 | `SortMode` | `time` / `name` | List sort |
 | `ShowHidden` | `true` / `false` | Show hidden files |
-| `ExpandFolders` | `true` / `false` | In-panel folder navigation |
+| `ExpandFolders` | `true` / `false` | In-panel folder navigation (default on) |
 | `WatchEnabled` | `true` / `false` | Watch for new files (default on) |
 | `ShowFilters` | `true` / `false` | Enable filters (default on; set in **Filters...**); off hides chips and disables filtering |
 | `HotkeyEnabled` | `true` / `false` | Register the global hotkey |

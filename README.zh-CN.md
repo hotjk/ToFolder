@@ -66,7 +66,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 WatchPath=
 SortMode=time
 ShowHidden=false
-ExpandFolders=false
+ExpandFolders=true
 WatchEnabled=true
 ShowFilters=true
 HotkeyEnabled=false
@@ -90,7 +90,7 @@ ActiveFilters=
 | `WatchPath` | 路径 | 监控文件夹；空表示未选择 |
 | `SortMode` | `time` / `name` | 列表排序 |
 | `ShowHidden` | `true` / `false` | 显示隐藏文件 |
-| `ExpandFolders` | `true` / `false` | 面板内展开进入子目录 |
+| `ExpandFolders` | `true` / `false` | 面板内展开进入子目录（默认开启） |
 | `WatchEnabled` | `true` / `false` | 监控新增文件（默认开启） |
 | `ShowFilters` | `true` / `false` | 是否启用过滤（默认开启；在 **过滤...** 中设置）；关闭时隐藏芯片且不过滤 |
 | `HotkeyEnabled` | `true` / `false` | 是否注册全局热键 |

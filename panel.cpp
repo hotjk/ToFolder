@@ -24,6 +24,9 @@
 #ifndef LVS_EX_NOHSCROLL
 #define LVS_EX_NOHSCROLL 0x10000000
 #endif
+#ifndef LVS_EX_INFOTIP
+#define LVS_EX_INFOTIP 0x00000400
+#endif
 
 #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
 #define DWMWA_WINDOW_CORNER_PREFERENCE 33
@@ -447,9 +450,9 @@ void PanelWindow::EnsureList() {
       GetModuleHandleW(nullptr),
       nullptr);
 
-  // Double-buffer + no hscroll for smooth scrolling without horizontal bar
+  // Double-buffer + no hscroll; INFOTIP works with OWNERDATA (LABELTIP does not).
   ListView_SetExtendedListViewStyle(listView_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER |
-                                                   LVS_EX_LABELTIP | LVS_EX_NOHSCROLL);
+                                                   LVS_EX_INFOTIP | LVS_EX_NOHSCROLL);
 
   LVCOLUMNW col = {};
   col.mask = LVCF_WIDTH | LVCF_SUBITEM;
@@ -458,9 +461,34 @@ void PanelWindow::EnsureList() {
   ListView_InsertColumn(listView_, 0, &col);
 
   EnsureListIcons();
+  EnsureListInfoTipTopMost();
 
   if (listFont_) {
     SendMessageW(listView_, WM_SETFONT, reinterpret_cast<WPARAM>(listFont_), TRUE);
+  }
+}
+
+void PanelWindow::EnsureListInfoTipTopMost() {
+  if (!listView_) {
+    return;
+  }
+  // Panel is WS_EX_TOPMOST; the ListView's own tooltip is not, so it draws underneath.
+  HWND tip = ListView_GetToolTips(listView_);
+  if (!tip) {
+    tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+                          WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, CW_USEDEFAULT, CW_USEDEFAULT,
+                          CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, GetModuleHandleW(nullptr),
+                          nullptr);
+    if (!tip) {
+      return;
+    }
+    ListView_SetToolTips(listView_, tip);
+  }
+  SetWindowPos(tip, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  // Keep tip above the topmost panel after each show/activate.
+  LONG_PTR ex = GetWindowLongPtrW(tip, GWL_EXSTYLE);
+  if ((ex & WS_EX_TOPMOST) == 0) {
+    SetWindowLongPtrW(tip, GWL_EXSTYLE, ex | WS_EX_TOPMOST);
   }
 }
 
@@ -1122,6 +1150,7 @@ void PanelWindow::Show() {
   }
 
   SlideIn(hwnd_, fromX, toX, y);
+  EnsureListInfoTipTopMost();
   EnsureSelection();
   SetForegroundWindow(hwnd_);
   if (listView_) {
@@ -1563,6 +1592,48 @@ LRESULT PanelWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             wcsncpy_s(di->item.pszText, di->item.cchTextMax, name.c_str(), _TRUNCATE);
           }
+        }
+        return 0;
+      }
+      if (nmhdr->code == LVN_GETINFOTIPW) {
+        auto* tip = reinterpret_cast<NMLVGETINFOTIPW*>(lParam);
+        if (!tip || !tip->pszText || tip->cchTextMax <= 0) {
+          return 0;
+        }
+        tip->pszText[0] = L'\0';
+        if (items_.empty() || tip->iItem < 0 ||
+            tip->iItem >= static_cast<int>(items_.size())) {
+          return 0;
+        }
+        const FileEntry& e = items_[tip->iItem];
+        std::wstring name = e.name;
+        if (e.isDirectory && e.name != L"..") {
+          name += L"\\";
+        }
+
+        // Only show tip when the label is truncated in the column.
+        RECT labelRc = {};
+        if (!ListView_GetItemRect(listView_, tip->iItem, &labelRc, LVIR_LABEL)) {
+          return 0;
+        }
+        HDC hdc = GetDC(listView_);
+        if (!hdc) {
+          return 0;
+        }
+        HFONT oldFont = nullptr;
+        if (listFont_) {
+          oldFont = static_cast<HFONT>(SelectObject(hdc, listFont_));
+        }
+        SIZE sz = {};
+        GetTextExtentPoint32W(hdc, name.c_str(), static_cast<int>(name.size()), &sz);
+        if (oldFont) {
+          SelectObject(hdc, oldFont);
+        }
+        ReleaseDC(listView_, hdc);
+
+        const int avail = labelRc.right - labelRc.left;
+        if (sz.cx > avail) {
+          wcsncpy_s(tip->pszText, tip->cchTextMax, name.c_str(), _TRUNCATE);
         }
         return 0;
       }

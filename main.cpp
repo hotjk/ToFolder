@@ -30,7 +30,7 @@ DirectoryWatcher g_watcher;
 std::wstring g_watchPath;
 config::SortMode g_sortMode = config::SortMode::ByTime;
 bool g_showHidden = false;
-bool g_expandFolders = false;
+bool g_expandFolders = true;
 bool g_watchEnabled = true;
 bool g_showFilters = true;
 bool g_hotkeyEnabled = false;

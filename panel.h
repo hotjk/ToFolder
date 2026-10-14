@@ -57,6 +57,7 @@ class PanelWindow {
   void EnsureFont();
   void EnsureSelection();
   void EnsureTooltip();
+  void EnsureListInfoTipTopMost();
   void UpdatePinTooltip();
   void ApplyTheme();
   void NavigateTo(const std::wstring& path);
@@ -101,7 +102,7 @@ class PanelWindow {
   std::wstring browsePath_;
   config::SortMode sortMode_ = config::SortMode::ByTime;
   bool showHidden_ = false;
-  bool expandFolders_ = false;
+  bool expandFolders_ = true;
   bool showFilters_ = true;
   bool pinned_ = false;
   std::vector<config::FilterItem> filters_;
