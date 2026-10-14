@@ -56,8 +56,11 @@ struct Settings {
   std::vector<std::wstring> activeFilters;
 };
 
+std::wstring GetExePath();
 std::wstring GetExeDirectory();
 std::wstring GetConfigPath();
+// Mutex name unique per executable path (allows multiple renamed copies).
+std::wstring GetSingleInstanceMutexName();
 Settings Load();
 bool Save(const Settings& settings);
 

@@ -254,6 +254,20 @@ std::wstring GetConfigPath() {
   return exe + L".ini";
 }
 
+std::wstring GetSingleInstanceMutexName() {
+  // Hash full exe path so different copies/renames can run side by side,
+  // while the same path remains single-instance. Mutex names cannot contain '\'.
+  const std::wstring exe = GetExePath();
+  unsigned int hash = 2166136261u;
+  for (wchar_t ch : exe) {
+    hash ^= static_cast<unsigned int>(towlower(ch));
+    hash *= 16777619u;
+  }
+  wchar_t name[64] = {};
+  swprintf_s(name, L"Local\\ToFolder_Exe_%08X", hash);
+  return name;
+}
+
 bool FileExists(const std::wstring& path) {
   const DWORD attrs = GetFileAttributesW(path.c_str());
   return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;

@@ -6,7 +6,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 
 ## Features
 
-- No main window; lives in the system tray (single instance)
+- No main window; lives in the system tray (one instance per executable path; renamed copies can run separately)
 - Watches a configurable folder (top-level files and subfolders; not recursive by default)
 - Left-click the tray icon to slide in the file list panel (~160 ms ease in/out)
 - System file icons; sort by modified time or name (default: time; folders after files)
@@ -139,7 +139,7 @@ Output:
 4. Double-click or Enter to open files; watch the tray icon for new arrivals
 5. Enable **Expand folders** in the tray menu to browse subdirectories
 
-Only one ToFolder process runs at a time.
+Only one process runs per executable path; a renamed or copied `.exe` can run as a separate instance (with its own `.ini`).
 
 ## Project layout
 

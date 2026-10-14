@@ -551,7 +551,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
   dpi::EnablePerMonitorV2();
   theme::InitDarkModeSupport();
 
-  HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\ToFolderSingleInstance");
+  // One instance per executable path; different exe copies may run together.
+  const std::wstring mutexName = config::GetSingleInstanceMutexName();
+  HANDLE mutex = CreateMutexW(nullptr, TRUE, mutexName.c_str());
   if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS) {
     if (mutex) {
       CloseHandle(mutex);
