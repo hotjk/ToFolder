@@ -35,6 +35,7 @@ enum class Id {
   MenuPanelLarge,
   MenuHotkey,
   MenuFilters,
+  MenuHelp,
   MenuAbout,
   MenuExit,
   StartupUpdateFailed,
@@ -73,6 +74,8 @@ enum class Id {
   FiltersNameDuplicate,
   TipPin,
   TipUnpin,
+  HelpDialogTitle,
+  HelpBody,
   Count,
 };
 

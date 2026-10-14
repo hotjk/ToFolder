@@ -37,6 +37,7 @@ constexpr Strings kStrings[static_cast<int>(Id::Count)] = {
     {L"Large", L"大"},
     {L"Hotkey...", L"热键..."},
     {L"Filters...", L"过滤..."},
+    {L"Help...", L"帮助..."},
     {L"About...", L"关于..."},
     {L"Exit", L"退出"},
     {L"Could not update the Windows startup setting.", L"无法更新开机自启动设置。"},
@@ -78,6 +79,49 @@ constexpr Strings kStrings[static_cast<int>(Id::Count)] = {
     {L"A filter with that name already exists.", L"已存在同名过滤项。"},
     {L"Pin panel", L"固定面板"},
     {L"Unpin panel", L"取消固定"},
+    {L"Help", L"帮助"},
+    {L"ToFolder — quick help\r\n"
+     L"\r\n"
+     L"Basics\r\n"
+     L"• Left-click the tray icon to open/close the side panel.\r\n"
+     L"• Choose a watch folder from the tray menu (or on first click).\r\n"
+     L"• New files can mark the tray icon as unread when watching is on.\r\n"
+     L"\r\n"
+     L"Panel\r\n"
+     L"• Double-click / Enter opens files; with Expand folders, directories open inside the panel.\r\n"
+     L"• Pin (top-right) keeps the panel open when clicking outside.\r\n"
+     L"• Esc or tray click still closes it.\r\n"
+     L"• Drag items out to Explorer (Move; Ctrl = Copy).\r\n"
+     L"• Right-click: Open, location, Cut/Copy/name/path, Delete.\r\n"
+     L"\r\n"
+     L"Filters\r\n"
+     L"• Enable and edit groups in Filters… (file/folder/image/zip/doc by default).\r\n"
+     L"• Multi-select chips use OR matching.\r\n"
+     L"\r\n"
+     L"Settings\r\n"
+     L"• Font size / Panel size, language, hotkey, Start with Windows — all in the tray menu.\r\n"
+     L"• Options are saved next to the exe in config.ini.",
+     L"ToFolder — 快速帮助\r\n"
+     L"\r\n"
+     L"基本\r\n"
+     L"• 左键托盘图标：打开/关闭右侧面板。\r\n"
+     L"• 在托盘菜单中选择监控文件夹（首次点击也可选择）。\r\n"
+     L"• 开启监控后，新增文件可将托盘标为未读。\r\n"
+     L"\r\n"
+     L"面板\r\n"
+     L"• 双击 / Enter 打开文件；开启「展开文件夹」后，目录在面板内进入。\r\n"
+     L"• 右上角固定：固定后点击外部不关闭。\r\n"
+     L"• Esc 或再点托盘仍可关闭。\r\n"
+     L"• 可拖出到资源管理器（默认移动，Ctrl 复制）。\r\n"
+     L"• 右键：打开、所在位置、剪切/复制/文件名/路径、删除。\r\n"
+     L"\r\n"
+     L"过滤\r\n"
+     L"• 在「过滤…」中启用并编辑过滤组（默认 file/folder/image/zip/doc）。\r\n"
+     L"• 顶部芯片可多选，按 OR（并集）匹配。\r\n"
+     L"\r\n"
+     L"设置\r\n"
+     L"• 字体大小 / 面板大小、语言、热键、开机自启等均在托盘菜单。\r\n"
+     L"• 选项保存在程序同目录的 config.ini。"},
 };
 
 }  // namespace

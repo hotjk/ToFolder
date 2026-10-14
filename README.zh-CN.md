@@ -40,6 +40,7 @@ Windows 托盘驻留小工具：监控指定文件夹，从屏幕右侧滑出面
 | 面板大小 | 小 / 中 / 大（默认小，即当前宽度） |
 | Hotkey... | 开启/设置全局热键（切换面板） |
 | 过滤... | 启用过滤并编辑过滤组 |
+| 帮助... | 简要功能介绍 |
 | About... | 打开 GitHub 仓库页面 |
 | Exit | 退出程序 |
 
@@ -151,6 +152,7 @@ config.cpp        读写 config.ini
 theme.cpp         应用/任务栏主题与暗色菜单 API
 hotkey.cpp        全局热键注册与设置对话框
 filter_dlg.cpp    过滤组配置对话框
+help_dlg.cpp      帮助对话框（功能简介）
 lang.cpp          英/中界面字符串
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     高质量图标加载

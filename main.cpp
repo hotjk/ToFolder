@@ -2,6 +2,7 @@
 #include "config.h"
 #include "dpi.h"
 #include "filter_dlg.h"
+#include "help_dlg.h"
 #include "hotkey.h"
 #include "icon_load.h"
 #include "lang.h"
@@ -343,6 +344,7 @@ void ShowContextMenu(HWND hwnd) {
 
   AppendMenuW(menu, MF_STRING, IDM_HOTKEY, lang::T(lang::Id::MenuHotkey));
   AppendMenuW(menu, MF_STRING, IDM_FILTERS, lang::T(lang::Id::MenuFilters));
+  AppendMenuW(menu, MF_STRING, IDM_HELP, lang::T(lang::Id::MenuHelp));
   AppendMenuW(menu, MF_STRING, IDM_ABOUT, lang::T(lang::Id::MenuAbout));
   AppendMenuW(menu, MF_STRING, IDM_EXIT, lang::T(lang::Id::MenuExit));
 
@@ -443,6 +445,9 @@ void ShowContextMenu(HWND hwnd) {
       }
       break;
     }
+    case IDM_HELP:
+      help_dlg::ShowHelpDialog(hwnd);
+      break;
     case IDM_ABOUT: {
       const int choice = MessageBoxW(hwnd, lang::T(lang::Id::AboutBody),
                                      lang::T(lang::Id::AboutTitle),

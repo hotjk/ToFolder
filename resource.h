@@ -28,8 +28,9 @@
 #define IDM_PANEL_LARGE         1020
 #define IDM_HOTKEY              1021
 #define IDM_FILTERS             1022
-#define IDM_ABOUT               1023
-#define IDM_EXIT                1024
+#define IDM_HELP                1023
+#define IDM_ABOUT               1024
+#define IDM_EXIT                1025
 
 #define IDM_LIST_OPEN           1101
 #define IDM_LIST_OPEN_LOCATION  1102
@@ -59,3 +60,6 @@
 #define IDC_FILTER_ADD          3110
 #define IDC_FILTER_REMOVE       3111
 #define IDC_FILTER_UPDATE       3112
+
+#define IDD_HELP                3201
+#define IDC_HELP_BODY           3202

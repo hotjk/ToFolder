@@ -40,6 +40,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 | Panel size | Small / Medium / Large (default Small = current width) |
 | Hotkey... | Enable / change the global hotkey (toggle panel) |
 | Filters... | Enable filters and edit filter groups |
+| Help... | Short feature overview |
 | About... | Open the GitHub repository |
 | Exit | Quit |
 
@@ -151,6 +152,7 @@ config.cpp        config.ini read/write
 theme.cpp         App/taskbar theme and dark menu APIs
 hotkey.cpp        Global hotkey registration and settings dialog
 filter_dlg.cpp    Filter group editor dialog
+help_dlg.cpp      Help dialog with feature overview
 lang.cpp          English / Chinese UI strings
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     High-quality icon loading
