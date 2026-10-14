@@ -13,7 +13,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 - New files switch the tray to an “unread” icon; opening the panel clears it
 - Open-folder tray icon while the panel is visible
 - Double-click or Enter to open; with **Expand folders**, directories navigate inside the panel, otherwise Explorer opens them
-- Item context menu: Open / Open containing folder / Delete (Recycle Bin)
+- Item context menu: Open / Open containing folder / Cut / Copy / Copy name / Copy path / Delete (Recycle Bin)
 - Drag items to the desktop or Explorer: move by default, Ctrl to copy
 - Keyboard: ↑↓ select, Enter open, Backspace go up (expand mode), Esc close
 - Click outside or lose focus to dismiss the panel (unless pinned)

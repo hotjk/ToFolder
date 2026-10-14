@@ -25,7 +25,11 @@
 
 #define IDM_LIST_OPEN           1101
 #define IDM_LIST_OPEN_LOCATION  1102
-#define IDM_LIST_DELETE         1103
+#define IDM_LIST_CUT            1103
+#define IDM_LIST_COPY           1104
+#define IDM_LIST_COPY_NAME      1105
+#define IDM_LIST_COPY_PATH      1106
+#define IDM_LIST_DELETE         1107
 
 #define IDC_FILE_LIST           2001
 

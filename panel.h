@@ -49,6 +49,10 @@ class PanelWindow {
   void PopulateList();
   void OpenAt(int index);
   void OpenLocationAt(int index);
+  bool CopyItemAt(int index);
+  bool CutItemAt(int index);
+  bool CopyItemNameAt(int index);
+  bool CopyItemPathAt(int index);
   bool DeleteAt(int index);
   void ShowItemContextMenu(int index, POINT screenPt);
   void BeginDragAt(int index);

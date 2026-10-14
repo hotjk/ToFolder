@@ -61,6 +61,90 @@ constexpr UINT_PTR kPinTooltipId = 1;
 constexpr wchar_t kPinGlyph[] = L"\xE718";
 constexpr wchar_t kPinSolidGlyph[] = L"\xE840";
 
+bool CopyTextToClipboard(HWND hwnd, const std::wstring& text) {
+  if (!OpenClipboard(hwnd)) {
+    return false;
+  }
+  EmptyClipboard();
+  const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+  HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+  if (!mem) {
+    CloseClipboard();
+    return false;
+  }
+  void* locked = GlobalLock(mem);
+  if (!locked) {
+    GlobalFree(mem);
+    CloseClipboard();
+    return false;
+  }
+  memcpy(locked, text.c_str(), bytes);
+  GlobalUnlock(mem);
+  if (!SetClipboardData(CF_UNICODETEXT, mem)) {
+    GlobalFree(mem);
+    CloseClipboard();
+    return false;
+  }
+  CloseClipboard();
+  return true;
+}
+
+bool CopyFilesToClipboard(HWND hwnd, const std::wstring& path, bool cut) {
+  // DROPFILES + wide path list terminated by an extra NUL.
+  const size_t pathBytes = (path.size() + 1) * sizeof(wchar_t);
+  const size_t total = sizeof(DROPFILES) + pathBytes + sizeof(wchar_t);
+  HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, total);
+  if (!mem) {
+    return false;
+  }
+  auto* drop = static_cast<DROPFILES*>(GlobalLock(mem));
+  if (!drop) {
+    GlobalFree(mem);
+    return false;
+  }
+  drop->pFiles = sizeof(DROPFILES);
+  drop->fWide = TRUE;
+  wchar_t* dest = reinterpret_cast<wchar_t*>(reinterpret_cast<BYTE*>(drop) + sizeof(DROPFILES));
+  memcpy(dest, path.c_str(), pathBytes);
+  dest[path.size()] = L'\0';
+  dest[path.size() + 1] = L'\0';
+  GlobalUnlock(mem);
+
+  HGLOBAL effectMem = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+  if (!effectMem) {
+    GlobalFree(mem);
+    return false;
+  }
+  auto* effect = static_cast<DWORD*>(GlobalLock(effectMem));
+  if (!effect) {
+    GlobalFree(effectMem);
+    GlobalFree(mem);
+    return false;
+  }
+  *effect = cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+  GlobalUnlock(effectMem);
+
+  if (!OpenClipboard(hwnd)) {
+    GlobalFree(effectMem);
+    GlobalFree(mem);
+    return false;
+  }
+  EmptyClipboard();
+  if (!SetClipboardData(CF_HDROP, mem)) {
+    GlobalFree(effectMem);
+    GlobalFree(mem);
+    CloseClipboard();
+    return false;
+  }
+  const UINT fmtEffect = RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT);
+  if (!fmtEffect || !SetClipboardData(fmtEffect, effectMem)) {
+    GlobalFree(effectMem);
+    // CF_HDROP already on clipboard; still usable as copy.
+  }
+  CloseClipboard();
+  return true;
+}
+
 std::wstring ExtLower(const std::wstring& fileName) {
   const size_t dot = fileName.find_last_of(L'.');
   if (dot == std::wstring::npos || dot + 1 >= fileName.size()) {
@@ -1294,6 +1378,38 @@ void PanelWindow::OpenLocationAt(int index) {
   }
 }
 
+bool PanelWindow::CopyItemAt(int index) {
+  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size()) ||
+      IsParentRow(index)) {
+    return false;
+  }
+  return CopyFilesToClipboard(hwnd_, items_[index].fullPath, false);
+}
+
+bool PanelWindow::CutItemAt(int index) {
+  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size()) ||
+      IsParentRow(index)) {
+    return false;
+  }
+  return CopyFilesToClipboard(hwnd_, items_[index].fullPath, true);
+}
+
+bool PanelWindow::CopyItemNameAt(int index) {
+  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size()) ||
+      IsParentRow(index)) {
+    return false;
+  }
+  return CopyTextToClipboard(hwnd_, items_[index].name);
+}
+
+bool PanelWindow::CopyItemPathAt(int index) {
+  if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size()) ||
+      IsParentRow(index)) {
+    return false;
+  }
+  return CopyTextToClipboard(hwnd_, items_[index].fullPath);
+}
+
 bool PanelWindow::DeleteAt(int index) {
   if (items_.empty() || index < 0 || index >= static_cast<int>(items_.size())) {
     return false;
@@ -1390,6 +1506,11 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
   AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN, lang::T(lang::Id::ListOpen));
   AppendMenuW(menu, MF_STRING, IDM_LIST_OPEN_LOCATION, lang::T(lang::Id::ListOpenLocation));
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(menu, MF_STRING, IDM_LIST_CUT, lang::T(lang::Id::ListCut));
+  AppendMenuW(menu, MF_STRING, IDM_LIST_COPY, lang::T(lang::Id::ListCopy));
+  AppendMenuW(menu, MF_STRING, IDM_LIST_COPY_NAME, lang::T(lang::Id::ListCopyName));
+  AppendMenuW(menu, MF_STRING, IDM_LIST_COPY_PATH, lang::T(lang::Id::ListCopyPath));
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING, IDM_LIST_DELETE, lang::T(lang::Id::ListDelete));
 
   // Popup menus deactivate the owner; don't treat that as an outside dismiss.
@@ -1443,6 +1564,18 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
       break;
     case IDM_LIST_OPEN_LOCATION:
       OpenLocationAt(index);
+      break;
+    case IDM_LIST_CUT:
+      CutItemAt(index);
+      break;
+    case IDM_LIST_COPY:
+      CopyItemAt(index);
+      break;
+    case IDM_LIST_COPY_NAME:
+      CopyItemNameAt(index);
+      break;
+    case IDM_LIST_COPY_PATH:
+      CopyItemPathAt(index);
       break;
     case IDM_LIST_DELETE:
       DeleteAt(index);
