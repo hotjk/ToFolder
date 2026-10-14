@@ -1,10 +1,9 @@
 """Generate multi-size .ico files from Bootstrap SVGs.
 
-Produces a classic Windows ICO:
-  - 16/32/48/64/128: 32bpp BMP + 1bpp AND mask (best RC.exe compatibility)
-  - 256: PNG-compressed (Vista+ requirement for 256)
+Produces a compact Windows ICO with PNG-compressed frames only:
+  sizes 16, 32, 48, 256 (tray + Explorer; no large uncompressed BMPs)
 
-Sizes: 16, 32, 48, 64, 128, 256
+Black strokes only — white tray glyphs are recolored at runtime.
 """
 
 from __future__ import annotations
@@ -18,10 +17,10 @@ from PIL import Image
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 NAMES = ("folder", "folder2-open", "folder-fill")
-SIZES = (16, 32, 48, 64, 128, 256)
+SIZES = (16, 32, 48, 256)
 
 
-def render_svg(name: str, fill: str, png_suffix: str = "") -> Image.Image:
+def render_svg(name: str, fill: str = "#000000") -> Image.Image:
     svg_path = os.path.join(BASE, f"{name}.svg")
     with open(svg_path, "rb") as f:
         svg = f.read()
@@ -31,7 +30,7 @@ def render_svg(name: str, fill: str, png_suffix: str = "") -> Image.Image:
     page = doc[0]
     zoom = 256 / max(page.rect.width, page.rect.height)
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=True)
-    png_path = os.path.join(BASE, f"{name}{png_suffix}.png")
+    png_path = os.path.join(BASE, f"{name}.png")
     pix.save(png_path)
 
     src = Image.open(png_path).convert("RGBA")
@@ -41,48 +40,6 @@ def render_svg(name: str, fill: str, png_suffix: str = "") -> Image.Image:
     return src
 
 
-def row_stride(width: int, bpp: int) -> int:
-    return ((width * bpp + 31) // 32) * 4
-
-
-def bmp_icon_bytes(im: Image.Image) -> bytes:
-    """Encode one ICO image as BITMAPINFOHEADER + XOR + AND (no BITMAPFILEHEADER)."""
-    im = im.convert("RGBA")
-    w, h = im.size
-    pixels = im.load()
-
-    xor_stride = row_stride(w, 32)
-    and_stride = row_stride(w, 1)
-    xor = bytearray(xor_stride * h)
-    # For 32bpp icons Windows uses the alpha channel; AND mask must be zero.
-    and_bits = bytearray(and_stride * h)
-
-    for y in range(h):
-        # BMP is bottom-up
-        src_y = h - 1 - y
-        xor_row = y * xor_stride
-        for x in range(w):
-            r, g, b, a = pixels[x, src_y]
-            o = xor_row + x * 4
-            xor[o : o + 4] = bytes((b, g, r, a))
-
-    header = struct.pack(
-        "<IIIHHIIIIII",
-        40,  # biSize
-        w,
-        h * 2,  # includes AND mask
-        1,  # planes
-        32,  # bit count
-        0,  # BI_RGB
-        len(xor) + len(and_bits),
-        0,
-        0,
-        0,
-        0,
-    )
-    return header + bytes(xor) + bytes(and_bits)
-
-
 def png_bytes(im: Image.Image) -> bytes:
     buf = io.BytesIO()
     im.convert("RGBA").save(buf, format="PNG", optimize=True)
@@ -90,12 +47,7 @@ def png_bytes(im: Image.Image) -> bytes:
 
 
 def write_ico(path: str, images: list[Image.Image]) -> None:
-    blobs: list[bytes] = []
-    for im in images:
-        if im.size[0] >= 256:
-            blobs.append(png_bytes(im))
-        else:
-            blobs.append(bmp_icon_bytes(im))
+    blobs = [png_bytes(im) for im in images]
 
     offset = 6 + 16 * len(images)
     entries = bytearray()
@@ -103,7 +55,6 @@ def write_ico(path: str, images: list[Image.Image]) -> None:
         w, h = im.size
         entry_w = 0 if w >= 256 else w
         entry_h = 0 if h >= 256 else h
-        bpp = 32
         entries += struct.pack(
             "<BBBBHHII",
             entry_w,
@@ -111,7 +62,7 @@ def write_ico(path: str, images: list[Image.Image]) -> None:
             0,
             0,
             1,
-            bpp,
+            32,
             len(data),
             offset,
         )
@@ -134,21 +85,19 @@ def read_ico_sizes(path: str) -> list[tuple[int, int, int]]:
         return out
 
 
-def write_named_ico(name: str, fill: str, out_stem: str, png_suffix: str = "") -> None:
-    src = render_svg(name, fill, png_suffix)
-    images = [src.resize((s, s), Image.Resampling.LANCZOS) for s in SIZES]
-    ico_path = os.path.join(BASE, f"{out_stem}.ico")
-    write_ico(ico_path, images)
-    sizes = read_ico_sizes(ico_path)
-    print(f"{out_stem}.ico -> {len(sizes)} images: " + ", ".join(f"{w}x{h}" for w, h, _ in sizes))
-    assert [w for w, _, _ in sizes] == list(SIZES), sizes
-
-
 def main() -> None:
     for name in NAMES:
-        # Black strokes for light taskbar; white strokes for dark taskbar.
-        write_named_ico(name, "#000000", name)
-        write_named_ico(name, "#FFFFFF", f"{name}-light", png_suffix="-light")
+        src = render_svg(name, "#000000")
+        images = [src.resize((s, s), Image.Resampling.LANCZOS) for s in SIZES]
+        ico_path = os.path.join(BASE, f"{name}.ico")
+        write_ico(ico_path, images)
+        sizes = read_ico_sizes(ico_path)
+        total = sum(sz for _, _, sz in sizes)
+        print(
+            f"{name}.ico -> {len(sizes)} PNG frames ({total} bytes): "
+            + ", ".join(f"{w}x{h}" for w, h, _ in sizes)
+        )
+        assert [w for w, _, _ in sizes] == list(SIZES), sizes
 
 
 if __name__ == "__main__":

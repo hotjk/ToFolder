@@ -18,7 +18,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 - Keyboard: ↑↓ select, Enter open, Backspace go up (expand mode), Esc close
 - Click outside or lose focus to dismiss the panel
 - If no watch folder is set, left-click opens a folder picker
-- Tray glyphs follow taskbar light/dark; menus and panel follow app light/dark
+- Tray glyphs follow taskbar light/dark (runtime recolor); menus and panel follow app light/dark
 - Optional global hotkey to toggle the panel (**Hotkey...** in the tray menu)
 - Optional **Start with Windows** (off by default; HKCU Run)
 
@@ -118,7 +118,7 @@ hotkey.cpp        Global hotkey registration and settings dialog
 lang.cpp          English / Chinese UI strings
 dpi.cpp           Per-Monitor V2 DPI
 icon_load.cpp     High-quality icon loading
-assets/           Bootstrap Icons SVGs and black/white ICO scripts
+assets/           Bootstrap Icons SVGs and compact ICO scripts
 resource.rc       Manifest, icons, hotkey dialog
 build.bat         One-shot build
 ```
@@ -127,9 +127,10 @@ build.bat         One-shot build
 
 Tray and app icons are based on [Bootstrap Icons](https://icons.getbootstrap.com/) (MIT):
 
-- Idle: `folder` (plus white `folder-light` for a dark taskbar)
-- Panel open: `folder2-open` / `folder2-open-light`
-- Unread: `folder-fill` / `folder-fill-light`
+- Idle: `folder` (16/32/48/256 PNG ICO; shared as the exe icon)
+- Panel open: `folder2-open`
+- Unread: `folder-fill`
+- Dark taskbar: black strokes are recolored to white at runtime (no duplicate light ICOs)
 
 ## License
 

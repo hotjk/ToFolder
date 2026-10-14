@@ -127,9 +127,10 @@ build.bat         一键编译
 
 托盘与应用程序图标基于 [Bootstrap Icons](https://icons.getbootstrap.com/)（MIT）：
 
-- 正常：`folder`（另有白线 `folder-light` 用于深色任务栏）
-- 面板打开：`folder2-open` / `folder2-open-light`
-- 有新文件：`folder-fill` / `folder-fill-light`
+- 正常：`folder`（16/32/48/256 PNG ICO；兼作 exe 图标）
+- 面板打开：`folder2-open`
+- 有新文件：`folder-fill`
+- 深色任务栏：运行时将黑线重着色为白线（不再嵌入 light ICO）
 
 ## 许可
 

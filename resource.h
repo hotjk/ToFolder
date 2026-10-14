@@ -2,12 +2,9 @@
 
 // First / lowest app icon id is what Explorer shows for the .exe
 #define IDI_APP                 1
-#define IDI_FOLDER              101
+#define IDI_FOLDER              1
 #define IDI_FOLDER_OPEN         102
 #define IDI_FOLDER_FILL         103
-#define IDI_FOLDER_LIGHT        111
-#define IDI_FOLDER_OPEN_LIGHT   112
-#define IDI_FOLDER_FILL_LIGHT   113
 
 #define IDM_OPEN_PANEL          1001
 #define IDM_OPEN_FOLDER         1002
