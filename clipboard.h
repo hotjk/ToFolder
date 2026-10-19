@@ -3,12 +3,13 @@
 #include <windows.h>
 
 #include <string>
+#include <vector>
 
 namespace clipboard {
 
 bool CopyText(HWND owner, const std::wstring& text);
 
-// Puts a single file on the clipboard as CF_HDROP; `cut` marks it for move on paste.
-bool CopyFileItem(HWND owner, const std::wstring& path, bool cut);
+// Puts files on the clipboard as CF_HDROP; `cut` marks them for move on paste.
+bool CopyFileItems(HWND owner, const std::vector<std::wstring>& paths, bool cut);
 
 }  // namespace clipboard

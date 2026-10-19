@@ -67,6 +67,13 @@ class PanelWindow {
   int PanelHeightPx(const RECT& workArea) const;
   int HitTestItem(POINT clientPt) const;
   int SelectedIndex() const;
+  int FocusedIndex() const;
+  bool IsItemSelected(int index) const;
+  void SelectAll();
+  // Selected rows that file actions apply to, in list order (skips ".." and placeholders).
+  std::vector<int> SelectedActionable() const;
+  // Whole selection when `index` is already selected; otherwise just that row.
+  std::vector<int> ActionTargets(int index) const;
 
   // Filter chips and pin
   bool HasFilterBar() const;
@@ -94,7 +101,7 @@ class PanelWindow {
   // Item actions
   void OpenAt(int index);
   void OpenLocationAt(int index);
-  bool DeleteAt(int index);
+  bool DeleteItems(const std::vector<int>& indices);
   void BeginDragAt(int index);
   void ShowItemContextMenu(int index, POINT screenPt);
 

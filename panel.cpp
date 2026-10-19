@@ -319,7 +319,7 @@ void PanelWindow::EnsureList() {
 
   listView_ = CreateWindowExW(
       0, WC_LISTVIEWW, L"",
-      WS_CHILD | WS_VISIBLE | WS_VSCROLL | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS |
+      WS_CHILD | WS_VISIBLE | WS_VSCROLL | LVS_REPORT | LVS_SHOWSELALWAYS |
           LVS_NOCOLUMNHEADER | LVS_OWNERDATA,
       0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_FILE_LIST)),
       GetModuleHandleW(nullptr), nullptr);
@@ -934,13 +934,60 @@ int PanelWindow::SelectedIndex() const {
   return ItemAt(index) ? index : -1;
 }
 
-void PanelWindow::EnsureSelection() {
+int PanelWindow::FocusedIndex() const {
+  if (!listView_) {
+    return -1;
+  }
+  const int index = ListView_GetNextItem(listView_, -1, LVNI_FOCUSED);
+  return ItemAt(index) ? index : SelectedIndex();
+}
+
+bool PanelWindow::IsItemSelected(int index) const {
+  if (!listView_ || !ItemAt(index)) {
+    return false;
+  }
+  return (ListView_GetItemState(listView_, index, LVIS_SELECTED) & LVIS_SELECTED) != 0;
+}
+
+void PanelWindow::SelectAll() {
   if (!listView_ || items_.empty()) {
     return;
   }
-  const int index = (std::max)(SelectedIndex(), 0);
-  SelectOnly(listView_, index);
-  ListView_EnsureVisible(listView_, index, FALSE);
+  ListView_SetItemState(listView_, -1, LVIS_SELECTED, LVIS_SELECTED);
+}
+
+std::vector<int> PanelWindow::SelectedActionable() const {
+  std::vector<int> indices;
+  if (!listView_) {
+    return indices;
+  }
+  for (int index = -1; (index = ListView_GetNextItem(listView_, index, LVNI_SELECTED)) != -1;) {
+    if (ActionableItemAt(index)) {
+      indices.push_back(index);
+    }
+  }
+  return indices;
+}
+
+std::vector<int> PanelWindow::ActionTargets(int index) const {
+  if (IsItemSelected(index)) {
+    const std::vector<int> selected = SelectedActionable();
+    if (!selected.empty()) {
+      return selected;
+    }
+  }
+  if (ActionableItemAt(index)) {
+    return {index};
+  }
+  return {};
+}
+
+void PanelWindow::EnsureSelection() {
+  if (!listView_ || items_.empty() || SelectedIndex() >= 0) {
+    return;
+  }
+  SelectOnly(listView_, 0);
+  ListView_EnsureVisible(listView_, 0, FALSE);
 }
 
 // ---------------------------------------------------------------------------
@@ -951,6 +998,7 @@ void PanelWindow::OpenAt(int index) {
   if (!entry) {
     return;
   }
+  // Expanding a folder navigates this panel; do not also open the rest of the selection.
   if (settings_.expandFolders && entry->isDirectory) {
     if (IsParentRow(index)) {
       NavigateUp();
@@ -960,7 +1008,16 @@ void PanelWindow::OpenAt(int index) {
     return;
   }
 
-  ShellExecuteW(hwnd_, L"open", entry->fullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  const std::vector<int> targets = ActionTargets(index);
+  if (targets.empty()) {
+    return;
+  }
+  for (int target : targets) {
+    const FileEntry* item = ActionableItemAt(target);
+    if (item) {
+      ShellExecuteW(hwnd_, L"open", item->fullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+  }
   HideUnlessPinned();
 }
 
@@ -987,14 +1044,20 @@ void PanelWindow::OpenLocationAt(int index) {
   }
 }
 
-bool PanelWindow::DeleteAt(int index) {
-  const FileEntry* entry = ActionableItemAt(index);
-  if (!entry) {
+bool PanelWindow::DeleteItems(const std::vector<int>& indices) {
+  // Double-null-terminated path list for SHFileOperation.
+  std::wstring from;
+  for (int index : indices) {
+    const FileEntry* entry = ActionableItemAt(index);
+    if (!entry) {
+      continue;
+    }
+    from += entry->fullPath;
+    from.push_back(L'\0');
+  }
+  if (from.empty()) {
     return false;
   }
-
-  // Double-null-terminated path list for SHFileOperation
-  std::wstring from = entry->fullPath;
   from.push_back(L'\0');
 
   SHFILEOPSTRUCTW op = {};
@@ -1013,25 +1076,40 @@ bool PanelWindow::DeleteAt(int index) {
 }
 
 void PanelWindow::BeginDragAt(int index) {
-  const FileEntry* entry = ActionableItemAt(index);
-  if (!entry) {
+  const std::vector<int> targets = ActionTargets(index);
+  std::vector<PCIDLIST_ABSOLUTE> pidls;
+  pidls.reserve(targets.size());
+  for (int target : targets) {
+    const FileEntry* entry = ActionableItemAt(target);
+    if (!entry) {
+      continue;
+    }
+    if (PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(entry->fullPath.c_str())) {
+      pidls.push_back(pidl);
+    }
+  }
+  if (pidls.empty()) {
     return;
   }
 
-  IShellItem* item = nullptr;
-  HRESULT hr = SHCreateItemFromParsingName(entry->fullPath.c_str(), nullptr, IID_PPV_ARGS(&item));
-  if (FAILED(hr) || !item) {
+  IShellItemArray* items = nullptr;
+  HRESULT hr = SHCreateShellItemArrayFromIDLists(static_cast<UINT>(pidls.size()), pidls.data(),
+                                                 &items);
+  for (PCIDLIST_ABSOLUTE pidl : pidls) {
+    ILFree(const_cast<PIDLIST_ABSOLUTE>(pidl));
+  }
+  if (FAILED(hr) || !items) {
     return;
   }
 
   IDataObject* dataObj = nullptr;
-  hr = item->BindToHandler(nullptr, BHID_DataObject, IID_PPV_ARGS(&dataObj));
-  item->Release();
+  hr = items->BindToHandler(nullptr, BHID_DataObject, IID_PPV_ARGS(&dataObj));
+  items->Release();
   if (FAILED(hr) || !dataObj) {
     return;
   }
 
-  IDropSource* dropSource = new (std::nothrow) SimpleDropSource();
+  IDropSource* dropSource = new (std::nothrow) SimpleDropSource(dataObj);
   if (!dropSource) {
     dataObj->Release();
     return;
@@ -1055,12 +1133,17 @@ void PanelWindow::BeginDragAt(int index) {
 }
 
 void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
-  const FileEntry* entry = ActionableItemAt(index);
-  if (!entry) {
+  if (!ActionableItemAt(index)) {
     return;
   }
-
-  SelectOnly(listView_, index);
+  // Right-click on an unselected row replaces the selection; a selected row keeps the group.
+  if (!IsItemSelected(index)) {
+    SelectOnly(listView_, index);
+  }
+  const std::vector<int> targets = ActionTargets(index);
+  if (targets.empty()) {
+    return;
+  }
 
   HMENU menu = CreatePopupMenu();
   for (const MenuEntry& item : kItemMenu) {
@@ -1099,6 +1182,24 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
     SetFocus(listView_);
   }
 
+  std::vector<std::wstring> paths;
+  std::wstring names;
+  std::wstring fullPaths;
+  paths.reserve(targets.size());
+  for (int target : targets) {
+    const FileEntry* item = ActionableItemAt(target);
+    if (!item) {
+      continue;
+    }
+    paths.push_back(item->fullPath);
+    if (!names.empty()) {
+      names += L"\r\n";
+      fullPaths += L"\r\n";
+    }
+    names += item->name;
+    fullPaths += item->fullPath;
+  }
+
   switch (cmd) {
     case IDM_LIST_OPEN:
       OpenAt(index);
@@ -1107,19 +1208,19 @@ void PanelWindow::ShowItemContextMenu(int index, POINT screenPt) {
       OpenLocationAt(index);
       break;
     case IDM_LIST_CUT:
-      clipboard::CopyFileItem(hwnd_, entry->fullPath, true);
+      clipboard::CopyFileItems(hwnd_, paths, true);
       break;
     case IDM_LIST_COPY:
-      clipboard::CopyFileItem(hwnd_, entry->fullPath, false);
+      clipboard::CopyFileItems(hwnd_, paths, false);
       break;
     case IDM_LIST_COPY_NAME:
-      clipboard::CopyText(hwnd_, entry->name);
+      clipboard::CopyText(hwnd_, names);
       break;
     case IDM_LIST_COPY_PATH:
-      clipboard::CopyText(hwnd_, entry->fullPath);
+      clipboard::CopyText(hwnd_, fullPaths);
       break;
     case IDM_LIST_DELETE:
-      DeleteAt(index);
+      DeleteItems(targets);
       break;
   }
 }
@@ -1145,8 +1246,14 @@ LRESULT CALLBACK PanelWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
 bool PanelWindow::HandleNavigationKey(UINT vk) {
   switch (vk) {
+    case 'A':
+      if (GetKeyState(VK_CONTROL) < 0) {
+        SelectAll();
+        return true;
+      }
+      return false;
     case VK_RETURN:
-      OpenAt(SelectedIndex());
+      OpenAt(FocusedIndex());
       return true;
     case VK_BACK:
       NavigateUp();

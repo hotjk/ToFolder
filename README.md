@@ -14,6 +14,7 @@ A Windows tray utility that watches a folder and slides a file list in from the 
 - Open-folder tray icon while the panel is visible
 - Double-click or Enter to open; with **Expand folders**, directories navigate inside the panel, otherwise Explorer opens them
 - Item context menu: Open / Open containing folder / Cut / Copy / Copy name / Copy path / Delete (Recycle Bin)
+- Multi-select like Explorer: Shift selects a range, Ctrl adds or removes, Ctrl+A selects all; open, cut, copy, delete, and drag apply to the selection
 - Drag items to the desktop or Explorer: move by default, Ctrl to copy
 - Keyboard: ↑↓ select, Enter open, Backspace go up (expand mode), Esc close
 - Click outside or lose focus to dismiss the panel (unless pinned)

@@ -35,10 +35,17 @@ bool CopyText(HWND owner, const std::wstring& text) {
   return true;
 }
 
-bool CopyFileItem(HWND owner, const std::wstring& path, bool cut) {
-  // DROPFILES + wide path list terminated by an extra NUL.
-  const size_t pathBytes = (path.size() + 1) * sizeof(wchar_t);
-  const size_t total = sizeof(DROPFILES) + pathBytes + sizeof(wchar_t);
+bool CopyFileItems(HWND owner, const std::vector<std::wstring>& paths, bool cut) {
+  if (paths.empty()) {
+    return false;
+  }
+  // DROPFILES + wide paths, each NUL-terminated, plus an extra NUL.
+  size_t chars = 1;
+  for (const std::wstring& path : paths) {
+    chars += path.size() + 1;
+  }
+  const size_t pathBytes = chars * sizeof(wchar_t);
+  const size_t total = sizeof(DROPFILES) + pathBytes;
   HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, total);
   if (!mem) {
     return false;
@@ -51,9 +58,11 @@ bool CopyFileItem(HWND owner, const std::wstring& path, bool cut) {
   drop->pFiles = sizeof(DROPFILES);
   drop->fWide = TRUE;
   wchar_t* dest = reinterpret_cast<wchar_t*>(reinterpret_cast<BYTE*>(drop) + sizeof(DROPFILES));
-  memcpy(dest, path.c_str(), pathBytes);
-  dest[path.size()] = L'\0';
-  dest[path.size() + 1] = L'\0';
+  for (const std::wstring& path : paths) {
+    const size_t bytes = (path.size() + 1) * sizeof(wchar_t);
+    memcpy(dest, path.c_str(), bytes);
+    dest += path.size() + 1;
+  }
   GlobalUnlock(mem);
 
   HGLOBAL effectMem = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
