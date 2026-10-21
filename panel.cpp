@@ -160,6 +160,10 @@ void PanelWindow::ApplySettings(const config::Settings& settings) {
   if (watchChanged || !settings_.expandFolders) {
     browsePath_ = settings_.watchPath;
   }
+  if (watchChanged) {
+    seenPaths_.clear();
+    newFileTracking_ = false;
+  }
   RebuildFilterMatcher();
   chipLayoutDirty_ = true;
   if (created_) {
@@ -812,6 +816,17 @@ void PanelWindow::PopulateList() {
     }
   }
 
+  // Highlight watch-root entries that appeared since the user last closed the panel.
+  const bool markNew = newFileTracking_ && IsAtWatchRoot();
+  for (FileEntry& entry : items_) {
+    if (entry.name == L"..") {
+      entry.isNew = false;
+      continue;
+    }
+    entry.isNew =
+        markNew && seenPaths_.find(str::ToLower(entry.fullPath)) == seenPaths_.end();
+  }
+
   // Virtual list: text comes from LVN_GETDISPINFO (smooth with many files)
   const int count = items_.empty() ? 1 : static_cast<int>(items_.size());  // 1 = placeholder
   ListView_SetItemCountEx(listView_, count, LVSICF_NOSCROLL | LVSICF_NOINVALIDATEALL);
@@ -822,6 +837,15 @@ void PanelWindow::PopulateList() {
     ListView_EnsureVisible(listView_, top, FALSE);
   }
   InvalidateRect(listView_, nullptr, FALSE);
+}
+
+void PanelWindow::MarkListedPathsSeen() {
+  for (const FileEntry& entry : items_) {
+    if (entry.name == L".." || entry.fullPath.empty()) {
+      continue;
+    }
+    seenPaths_.insert(str::ToLower(entry.fullPath));
+  }
 }
 
 void PanelWindow::Refresh() {
@@ -866,6 +890,11 @@ void PanelWindow::Show() {
   slide_anim::SlideIn(hwnd_, fromX, toX, y);
   EnsureListInfoTipTopMost();
   EnsureSelection();
+  // First open: treat the current listing as already seen so only later arrivals highlight.
+  if (!newFileTracking_) {
+    MarkListedPathsSeen();
+    newFileTracking_ = true;
+  }
   SetForegroundWindow(hwnd_);
   if (listView_) {
     SetFocus(listView_);
@@ -876,6 +905,9 @@ void PanelWindow::Hide() {
   if (!IsVisible()) {
     return;
   }
+
+  // Absorb highlighted rows so they no longer count as new next time.
+  MarkListedPathsSeen();
 
   // Avoid re-entrancy from WM_ACTIVATE(WA_INACTIVE) while sliding out.
   suppressDeactivateHide_ = true;
@@ -1322,6 +1354,25 @@ void PanelWindow::OnGetInfoTip(NMLVGETINFOTIPW* tip) const {
   }
 }
 
+bool PanelWindow::OnListCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result) {
+  switch (cd->nmcd.dwDrawStage) {
+    case CDDS_PREPAINT:
+      *result = CDRF_NOTIFYITEMDRAW;
+      return true;
+    case CDDS_ITEMPREPAINT: {
+      const FileEntry* entry = ItemAt(static_cast<int>(cd->nmcd.dwItemSpec));
+      if (entry && entry->isNew) {
+        // Soft amber: readable in both Themes without competing with selection.
+        cd->clrTextBk = appsLight_ ? RGB(255, 244, 196) : RGB(72, 62, 28);
+      }
+      *result = CDRF_DODEFAULT;
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
 bool PanelWindow::OnNotify(const NMHDR* nmhdr, LRESULT* result) {
   if (nmhdr->idFrom != IDC_FILE_LIST) {
     return false;
@@ -1339,6 +1390,9 @@ bool PanelWindow::OnNotify(const NMHDR* nmhdr, LRESULT* result) {
     case LVN_BEGINDRAG:
       BeginDragAt(reinterpret_cast<const NMLISTVIEW*>(nmhdr)->iItem);
       return true;
+    case NM_CUSTOMDRAW:
+      return OnListCustomDraw(reinterpret_cast<NMLVCUSTOMDRAW*>(const_cast<NMHDR*>(nmhdr)),
+                              result);
     case NM_DBLCLK:
       OpenAt(reinterpret_cast<const NMITEMACTIVATE*>(nmhdr)->iItem);
       return true;

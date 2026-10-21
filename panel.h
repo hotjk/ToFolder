@@ -97,6 +97,8 @@ class PanelWindow {
   const FileEntry* ItemAt(int index) const;
   // Like ItemAt, but excludes the ".." row, which file actions do not apply to.
   const FileEntry* ActionableItemAt(int index) const;
+  void MarkListedPathsSeen();
+  bool OnListCustomDraw(NMLVCUSTOMDRAW* cd, LRESULT* result);
 
   // Item actions
   void OpenAt(int index);
@@ -138,6 +140,9 @@ class PanelWindow {
   mutable bool chipLayoutDirty_ = true;
 
   std::vector<FileEntry> items_;
+  // Lowercased full paths the user has already seen (updated on Hide / first Show).
+  std::unordered_set<std::wstring> seenPaths_;
+  bool newFileTracking_ = false;
   lang::Id emptyTextId_ = lang::Id::EmptyFolder;  // placeholder row when items_ is empty
   int retainedHeightPx_ = 0;  // grow-only while panel stays open
   bool created_ = false;

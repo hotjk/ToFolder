@@ -14,6 +14,7 @@ struct FileEntry {
   FILETIME lastWrite = {};
   bool isDirectory = false;
   int iconIndex = -1;  // SHGFI_SYSICONINDEX into the shell system image list
+  bool isNew = false;  // appeared since last panel hide (watch-root list only)
 };
 
 class DirectoryWatcher {
